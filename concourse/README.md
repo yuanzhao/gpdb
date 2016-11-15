@@ -1,8 +1,4 @@
 # Concourse Directory Contract
-We are going to be experimenting with a shared ownership of our pipelines and tasks.
-This is an unusual configuration, where different teams may be deploying the same pipeline to separate Concourse instances.
-
-Please be careful when updating files in this directory that you know which teams will be impacted.
 
 ### Directory Structure
 The Concourse directory should contain this README and three sub-directories only:
@@ -12,48 +8,37 @@ The Concourse directory should contain this README and three sub-directories onl
 * scripts
 
 ##### Pipelines Directory
-All pipelines should live in this directory.
-Any change to a pipeline yaml with dependent teams must be done in a PR so that teams can update their deployments as needed.
-Every pipeline yaml should have a declarative comment at the top of the form:
-```
-## ======================================================================
-## Purpose:
-##
-## Responsible Team:
-##
-## Dependent Teams:
-##
-## ======================================================================
-```
-Any team that deploys this pipeline and is not the `Responsible Team` should add themselves as a `Dependent Team`.
-This will ensure that breaking changes will be vetted by all involved parties.
+There should be three four pipelines in this directory:
+
+* `pipeline.yml` the pipeline that compiles, tests, and produces installers from the master branch of gpdb.
+* `dev_pipeline.yml` a safe to duplicate version of `pipeline.yml` which only compiles and runs test on the given source.
+* `pr_pipeline.yml` which compiles and tests pull requests.
+* `concourse-upgrade.yml` which uses Concourse to upgrade itself.
 
 ##### Tasks Directory
 All tasks yamls should live in this directory.
 If a task file is not referenced in the `pipelines` directory it is considered abandoned and can be removed.
-Any change to a task yaml that is used by a pipeline with a `Dependent Team` should be made in a PR.
 
 There are some exceptions to this rule.
 Please do not create any more exceptions, and remove these as the occasion arises:
 
-* `package_tarball.yml` is being used by the GPORCA team
-* `test_with_planner.yml` is being used by the GPORCA team
-* `test_with_orca.yml` is being used by the GPORCA team
-* `build_with_orca.yml` is being used by the GPORCA team
+* `package_tarball.yml` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `test_with_planner.yml` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `test_with_orca.yml` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `build_with_orca.yml` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
 
 ##### Scripts Directory
 All script files should live in this directory.
 If a script file is not referenced in any of the directories it is considered abandoned and can be removed.
-Any change to a script file that is used by a pipeline with a `Dependent Team` should be made in a PR.
 
 There are some exceptions to this rule.
 Please do not create any more exceptions, and remove these as the occasion arises:
 
-* `cpplint.py` is being used by the QX team
-* `package_tarball.bash` is being used by the GPORCA team
-* `builds/` is being used by the GPORCA team
-* `test_gpdb.py` is being used by the GPORCA team
-* `build_gpdb.py` is being used by the GPORCA team
+* `cpplint.py` is being used by codegen
+* `package_tarball.bash` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `builds/` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `test_gpdb.py` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `build_gpdb.py` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
 
 ### Updating This README
-Any team can propose changes to this contract with a PR.
+Changes should be proposed to this contract with a PR.
