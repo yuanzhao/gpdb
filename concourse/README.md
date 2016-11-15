@@ -8,7 +8,7 @@ The Concourse directory should contain this README and three sub-directories onl
 * scripts
 
 ##### Pipelines Directory
-There should be three four pipelines in this directory:
+There should be four pipelines in this directory:
 
 * `pipeline.yml` the pipeline that compiles, tests, and produces installers from the master branch of gpdb.
 * `dev_pipeline.yml` a safe to duplicate version of `pipeline.yml` which only compiles and runs test on the given source.
