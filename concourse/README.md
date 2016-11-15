@@ -38,5 +38,10 @@ All script files should live in this directory.
 If a script file is not referenced in any of the directories it is considered abandoned and can be removed.
 Any change to a script file that is used by a pipeline with a `Dependent Team` should be made in a PR.
 
+There are some exceptions to this rule.
+Please do not create any more exceptions, and remove these as the occasion arises:
+
+* `cpplint.py` is being used by the QX team
+
 ### Updating This README
 Any team can propose changes to this contract with a PR.
