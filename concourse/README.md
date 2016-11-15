@@ -16,16 +16,16 @@ There should be four pipelines in this directory:
 * `concourse-upgrade.yml` which uses Concourse to upgrade itself.
 
 ##### Tasks Directory
-All tasks yamls should live in this directory.
+All task yamls should live in this directory.
 If a task file is not referenced in the `pipelines` directory it is considered abandoned and can be removed.
 
 There are some exceptions to this rule.
 Please do not create any more exceptions, and remove these as the occasion arises:
 
-* `package_tarball.yml` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
-* `test_with_planner.yml` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
-* `test_with_orca.yml` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
-* `build_with_orca.yml` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `package_tarball.yml` is being used by [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `test_with_planner.yml` is being used by [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `test_with_orca.yml` is being used by [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `build_with_orca.yml` is being used by [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
 
 ##### Scripts Directory
 All script files should live in this directory.
@@ -35,10 +35,10 @@ There are some exceptions to this rule.
 Please do not create any more exceptions, and remove these as the occasion arises:
 
 * `cpplint.py` is being used by codegen
-* `package_tarball.bash` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
-* `builds/` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
-* `test_gpdb.py` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
-* `build_gpdb.py` is being used [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `package_tarball.bash` is being used by [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `builds/` is being used by [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `test_gpdb.py` is being used by [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
+* `build_gpdb.py` is being used by [a gporca pipeline ](https://github.com/greenplum-db/gporca/blob/master/concourse/pipeline.yml)
 
 ### Updating This README
 Changes should be proposed to this contract with a PR.
