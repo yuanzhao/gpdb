@@ -25,11 +25,6 @@ resources:
     username: {{docker_username}}
     password: {{docker_password}}
 
-- name: centos-6
-  type: docker-image
-  source:
-    repository: centos
-    tag: '6'
 # TODO: Currently the windows clients and loaders are not packaging correctly.
 #       This resource will be used when the team responsible for the CLs is
 #       ready to fix the issues, and integrate the changes into the full CI for
@@ -130,18 +125,15 @@ jobs:
 - name: test_client_and_loader_gpdb_centos6
   plan:
   - aggregate:
-    - get: centos-6
+    - get: centos-gpdb-dev-6
     - get: gpdb_src
-      trigger: true
     - get: installer_rhel6_gpdb_clients
-      passed: [compile_gpdb_centos6]
       trigger: true
     - get: installer_rhel6_gpdb_loaders
-      passed: [compile_gpdb_centos6]
       trigger: true
   - task: test_client_and_loader
     file: gpdb_src/concourse/tasks/test_client_and_loader.yml
-    image: centos-6
+    image: centos-gpdb-dev-6
 # TODO: Currently the windows clients and loaders are not packaging correctly.
 #       This task will be used when the team responsible for the CLs is ready
 #       to fix the issues, and integrate the changes into the full CI for gpdb.
