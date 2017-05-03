@@ -1,0 +1,180 @@
+## ======================================================================
+## resources
+## ======================================================================
+
+resources:
+- name: gpdb_src
+  type: git
+  source:
+    branch: {{gpdb-git-branch}}
+    private_key: {{gpdb-git-key}}
+    uri: {{gpdb-git-remote}}
+
+- name: gpaddon_src
+  type: git
+  source:
+    branch: {{gpaddon-git-branch}}
+    private_key: {{gpdb-git-key}}
+    uri: {{gpaddon-git-remote}}
+
+- name: centos-gpdb-dev-6
+  type: docker-image
+  source:
+    repository: pivotaldata/centos-gpdb-dev
+    tag: '6-gcc6.2-llvm3.7'
+    username: {{docker_username}}
+    password: {{docker_password}}
+
+# TODO: Currently the windows clients and loaders are not packaging correctly.
+#       This resource will be used when the team responsible for the CLs is
+#       ready to fix the issues, and integrate the changes into the full CI for
+#       gpdb.
+# - name: centos-mingw
+#   type: docker-image
+#   source:
+#     repository: pivotaldata/centos-mingw
+#     username: {{docker_username}}
+#     password: {{docker_password}}
+
+- name: bin_gpdb_centos6
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    versioned_file: {{bin_gpdb_centos_versioned_file}}
+
+# TODO: Currently the windows clients and loaders are not packaging correctly.
+#       This resource will be used when the team responsible for the CLs is
+#       ready to fix the issues, and integrate the changes into the full CI for
+#       gpdb.
+# - name: bin_gpdb_windows_clients
+#   type: s3
+#   source:
+#     access_key_id: {{bucket-access-key-id}}
+#     bucket: {{bucket-name}}
+#     region_name: {{aws-region}}
+#     secret_access_key: {{bucket-secret-access-key}}
+#     regexp: windows-cl/greenplum-clients-5.(.*)-WinXP-x86_32.msi
+#
+# - name: bin_gpdb_windows_loaders
+#   type: s3
+#   source:
+#     access_key_id: {{bucket-access-key-id}}
+#     bucket: {{bucket-name}}
+#     region_name: {{aws-region}}
+#     secret_access_key: {{bucket-secret-access-key}}
+#     regexp: windows-cl/greenplum-loaders-5.(.*)-WinXP-x86_32.msi
+
+- name: installer_rhel6_gpdb_rc
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    regexp: deliverables/software_only_installer/greenplum-db-(.*)-build-1-rhel6-x86_64.zip
+
+- name: installer_rhel6_gpdb_rc_sha256
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    regexp: deliverables/software_only_installer/greenplum-db-(.*)-build-1-rhel6-x86_64.zip.sha256
+
+- name: installer_rhel6_gpdb_clients
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    regexp: deliverables/greenplum-clients-5.(.*)-rhel6-x86_64.zip
+
+- name: installer_rhel6_gpdb_loaders
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    regexp: deliverables/greenplum-loaders-5.(.*)-rhel6-x86_64.zip
+
+## ======================================================================
+## jobs
+## ======================================================================
+
+# Stage 1: Build and C Unit Tests
+
+jobs:
+
+- name: compile_gpdb_centos6
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      trigger: true
+    - get: gpaddon_src
+    - get: centos-gpdb-dev-6
+  - task: compile_gpdb
+    file: gpdb_src/concourse/tasks/compile_gpdb.yml
+    image: centos-gpdb-dev-6
+    params:
+      IVYREPO_HOST: {{ivyrepo_host}}
+      IVYREPO_REALM: {{ivyrepo_realm}}
+      IVYREPO_USER: {{ivyrepo_user}}
+      IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      TARGET_OS: centos
+      TARGET_OS_VERSION: 6
+      BLD_TARGETS: "clients loaders"
+  - aggregate:
+    - put: bin_gpdb_centos6
+      params:
+        file: gpdb_artifacts/bin_gpdb.tar.gz
+    - put: installer_rhel6_gpdb_clients
+      params:
+        file: gpdb_artifacts/greenplum-clients-*-rhel6-x86_64.zip
+    - put: installer_rhel6_gpdb_loaders
+      params:
+        file: gpdb_artifacts/greenplum-loaders-*-rhel6-x86_64.zip
+
+- name: test_client_and_loader_gpdb_centos6
+  plan:
+  - aggregate:
+    - get: installer_rhel6_gpdb_clients
+      trigger: true
+    - get: installer_rhel6_gpdb_loaders
+      trigger: true
+  - task: test_client_and_loader
+    file: gpdb_src/concourse/tasks/test_client_and_loader.yml
+    image: centos-gpdb-dev-6
+# TODO: Currently the windows clients and loaders are not packaging correctly.
+#       This task will be used when the team responsible for the CLs is ready
+#       to fix the issues, and integrate the changes into the full CI for gpdb.
+# - name: compile_gpdb_windows_cl
+#   plan:
+#   - aggregate:
+#     - get: gpdb_src
+#       trigger: true
+#     - get: gpaddon_src
+#     - get: centos-mingw
+#   - task: compile_gpdb
+#     file: gpdb_src/concourse/tasks/compile_gpdb.yml
+#     image: centos-mingw
+#     params:
+#       TARGET_OS: win32
+#       TARGET_OS_VERSION:
+#       BLD_TARGETS: clients loaders
+#       IVYREPO_HOST: {{ivyrepo_host}}
+#       IVYREPO_REALM: {{ivyrepo_realm}}
+#       IVYREPO_USER: {{ivyrepo_user}}
+#       IVYREPO_PASSWD: {{ivyrepo_passwd}}
+#   - aggregate:
+#     - put: bin_gpdb_windows_clients
+#       params:
+#         file: gpdb_artifacts/greenplum-clients-*-WinXP-x86_32.msi
+#     - put: bin_gpdb_windows_loaders
+#       params:
+#         file: gpdb_artifacts/greenplum-loaders-*-WinXP-x86_32.msi

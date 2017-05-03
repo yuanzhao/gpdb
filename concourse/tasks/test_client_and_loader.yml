@@ -1,0 +1,10 @@
+platform: linux
+image_resource:
+  type: docker-image
+inputs:
+  - name: installer_rhel6_gpdb_clients
+  - name: installer_rhel6_gpdb_loaders
+outputs:
+run:
+  path: gpdb_src/concourse/scripts/test_cl.bash
+params:
