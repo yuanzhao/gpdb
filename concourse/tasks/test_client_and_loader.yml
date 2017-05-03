@@ -7,4 +7,4 @@ inputs:
   - name: installer_rhel6_gpdb_loaders
 outputs:
 run:
-  path: date
+  path: gpdb_src/concourse/scripts/test_cl.bash
