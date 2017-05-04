@@ -647,9 +647,9 @@ else
 ifneq "$(FILESET_LIB_GCC)" ""
 	(cd $(CLIENTINSTLOC_LIB)/ && $(TAR) cf - -C $(FILESET_LIB_GCC_LOC) $(FILESET_LIB_GCC) | $(TAR) xpf -)$(check_pipe_for_errors)
 endif
-    # ---- copy scripts fileset ----
-    mkdir -p $(CLIENTINSTLOC)
-    cp -f client/scripts/greenplum_$@_path$(SCRIPT) $(CLIENTINSTLOC)/
+	# ---- copy scripts fileset ----
+	mkdir -p $(CLIENTINSTLOC)
+	cp -f client/scripts/greenplum_$@_path$(SCRIPT) $(CLIENTINSTLOC)/
 
 	# ---- copy license files ----
 	cp ${BLD_TOP}/../LICENSE $(CLIENTINSTLOC)
@@ -722,9 +722,9 @@ ifneq "$(findstring $(BLD_ARCH),sol10_sparc_32)" ""
 	(cd /usr/local/lib/ && $(TAR) cf - libiconv.so* libexpat.so*) | (cd $(LOADERSINSTLOC_LIB)/ && $(TAR) xpf -)$(check_pipe_for_errors)
 endif
 
-    # ---- copy scripts fileset ----
-    mkdir -p $(LOADERSINSTLOC)
-    cp -f client/scripts/greenplum_$@_path$(SCRIPT) $(LOADERSINSTLOC)/
+	# ---- copy scripts fileset ----
+	mkdir -p $(LOADERSINSTLOC)
+	cp -f client/scripts/greenplum_$@_path$(SCRIPT) $(LOADERSINSTLOC)/
 
 	# ---- copy license files ----
 	cp ${BLD_TOP}/../LICENSE $(LOADERSINSTLOC)
