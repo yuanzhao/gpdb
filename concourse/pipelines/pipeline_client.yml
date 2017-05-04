@@ -127,6 +127,7 @@ jobs:
   - aggregate:
     - get: centos-gpdb-dev-6
     - get: gpdb_src
+      trigger: true
     - get: installer_rhel6_gpdb_clients
       trigger: true
     - get: installer_rhel6_gpdb_loaders
