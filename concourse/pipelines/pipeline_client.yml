@@ -127,10 +127,10 @@ jobs:
   - aggregate:
     - get: centos-gpdb-dev-6
     - get: gpdb_src
-      trigger: true
     - get: installer_rhel6_gpdb_clients
-      trigger: true
+      passed: [compile_gpdb_centos6]
     - get: installer_rhel6_gpdb_loaders
+      passed: [compile_gpdb_centos6]
       trigger: true
   - task: test_client_and_loader
     file: gpdb_src/concourse/tasks/test_client_and_loader.yml
