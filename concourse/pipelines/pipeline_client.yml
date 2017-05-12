@@ -135,6 +135,9 @@ jobs:
   - task: test_client_and_loader
     file: gpdb_src/concourse/tasks/test_client_and_loader.yml
     image: centos-gpdb-dev-6
+    params:
+      STAGING_SERVER_KEY: {{server_key}}
+      STAGING_SERVER_IP: {{server_ip}}
 # TODO: Currently the windows clients and loaders are not packaging correctly.
 #       This task will be used when the team responsible for the CLs is ready
 #       to fix the issues, and integrate the changes into the full CI for gpdb.
