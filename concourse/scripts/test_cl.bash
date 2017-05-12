@@ -6,6 +6,7 @@ tail -n +${SKIP} $1 | tar zxf - -C $2
 }
 unzip installer_rhel6_gpdb_clients/greenplum-clients-*.zip
 client_bin_file=`ls greenplum-clients-*.bin`
+mkdir -p ~/clients
 extract_package "$client_bin_file" "~/clients"
 
 pushd
@@ -16,4 +17,5 @@ popd
 psql -h SMOKE_TEST_SERVER -p 5432 -U gpadmin -C "select version();" postgres
 unzip installer_rhel6_gpdb_loaders/greenplum-loaders-*.zip
 loader_bin_file=`ls greenplum-loaders-*.bin`
+mkdir -p ~/loaders
 extract_package "$loader_bin_file" "~/loaders"
