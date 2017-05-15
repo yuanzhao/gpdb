@@ -7,7 +7,7 @@ function extract_package(){
   SKIP=`awk '/^__END_HEADER__/ {print NR + 1; exit 0; }' $1`
   tail -n +${SKIP} $1 | tar zxf - -C $2
   escape_path="${2//\//\\/}"
-  sed_pattern="s/\\`pwd\\`/$escape_path/g"
+  sed_pattern="s/\\\`pwd\\\`/$escape_path/g"
   echo $sed_pattern
   sed -i -e $sed_pattern $2/greenplum_clients_path.sh
 }
