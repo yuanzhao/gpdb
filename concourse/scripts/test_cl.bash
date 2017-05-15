@@ -1,4 +1,6 @@
 #!/bin/bash -l
+set -exo pipefail
+
 function extract_package(){
 
   mkdir -p $2
