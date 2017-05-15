@@ -13,7 +13,7 @@ function test_package(){
   source $2/greenplum_$3_path.sh
   psql -h localhost -p 5432 -U gpadmin -c "select version();" postgres
 }
-echo $STAGING_SERVER_KEY | base64 -d >key
+set +x && echo $STAGING_SERVER_KEY | base64 -d >key && set -x
 chmod 400 key
 ssh -M -S /tmp/tunnelsock  -fNT -L 5432:localhost:5432 -i key -o StrictHostKeyChecking=no gpadmin@$STAGING_SERVER_IP
 trap "{ ssh -S /tmp/tunnelsock -O exit -i key gpadmin@$STAGING_SERVER_IP; exit 1; }" EXIT
@@ -27,13 +27,3 @@ unzip installer_rhel6_gpdb_loaders/greenplum-loaders-*.zip
 loader_bin_file=`ls greenplum-loaders-*.bin`
 loader_path="/usr/local/loaders"
 test_package "$loader_bin_file" "$loader_path" loaders
-
-# unzip installer_rhel6_gpdb_loaders/greenplum-loaders-*.zip
-# loader_bin_file=`ls greenplum-loaders-*.bin`
-# loader_path="/usr/local/loaders"
-# extract_package "$loader_bin_file" "$loader_path"
-
-# source  $loader_path/greenplum_clients_path.sh
-
-# psql -h SMOKE_TEST_SERVER -p 5432 -U gpadmin -c "select version();" postgres
-
