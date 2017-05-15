@@ -27,3 +27,5 @@ unzip installer_rhel6_gpdb_loaders/greenplum-loaders-*.zip
 loader_bin_file=`ls greenplum-loaders-*.bin`
 loader_path="/usr/local/loaders"
 test_package "$loader_bin_file" "$loader_path" loaders
+
+exit 0
