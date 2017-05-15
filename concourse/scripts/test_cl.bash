@@ -7,7 +7,7 @@ function extract_package(){
   SKIP=`awk '/^__END_HEADER__/ {print NR + 1; exit 0; }' $1`
   tail -n +${SKIP} $1 | tar zxf - -C $2
   escape_path="${2//\//\\/}"
-  sed_pattern='s/`pwd`/$escape_path/g'
+  sed_pattern='s/`pwd`/'$escape_path'/g'
   echo $sed_pattern
   sed -i -e $sed_pattern $2/greenplum_clients_path.sh
 }
@@ -16,14 +16,14 @@ client_bin_file=`ls greenplum-clients-*.bin`
 client_path="/usr/local/clients"
 
 extract_package "$client_bin_file" "$client_path"
-
+cat /usr/local/clients/greenplum_clients_path.sh
 source  $client_path/greenplum_clients_path.sh
 
 echo $STAGING_SERVER_KEY | base64 -d >key
 chmod 400 key
 ssh -M -S /tmp/tunnelsock  -fNT -L 5432:localhost:5432 -i key -o StrictHostKeyChecking=no gpadmin@$STAGING_SERVER_IP
-trap "{ssh -S /tmp/tunnelsock -O exit -i key gpadmin@$STAGING_SERVER_IP; exit 1}" EXIT
-psql -h 35.166.116.126 -p 5432 -U gpadmin -c "select version();" postgres
+trap "{ ssh -S /tmp/tunnelsock -O exit -i key gpadmin@$STAGING_SERVER_IP; exit 1; }" EXIT
+psql -h localhost -p 5432 -U gpadmin -c "select version();" postgres
 
 # unzip installer_rhel6_gpdb_loaders/greenplum-loaders-*.zip
 # loader_bin_file=`ls greenplum-loaders-*.bin`
