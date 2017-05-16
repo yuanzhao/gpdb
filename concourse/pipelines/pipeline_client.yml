@@ -90,7 +90,7 @@ resources:
 #     bucket: {{bucket-name}}
 #     region_name: {{aws-region}}
 #     secret_access_key: {{bucket-secret-access-key}}
-#     regexp: windows-cl/greenplum-clients-5.(.*)-WinXP-x86_32.msi
+#     regexp: windows-cl/greenplum-clients-WinXP-x86_32.msi
 #
 # - name: bin_gpdb_windows_loaders
 #   type: s3
@@ -99,7 +99,7 @@ resources:
 #     bucket: {{bucket-name}}
 #     region_name: {{aws-region}}
 #     secret_access_key: {{bucket-secret-access-key}}
-#     regexp: windows-cl/greenplum-loaders-5.(.*)-WinXP-x86_32.msi
+#     regexp: windows-cl/greenplum-loaders-WinXP-x86_32.msi
 
 - name: installer_rhel6_gpdb_clients
   type: s3
@@ -108,7 +108,7 @@ resources:
     bucket: {{bucket-name}}
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    regexp: deliverables/greenplum-clients-5.(.*)-rhel6-x86_64.zip
+    versioned_file: deliverables/greenplum-clients-rhel6-x86_64.zip
 
 - name: installer_rhel6_gpdb_loaders
   type: s3
@@ -117,7 +117,7 @@ resources:
     bucket: {{bucket-name}}
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    regexp: deliverables/greenplum-loaders-5.(.*)-rhel6-x86_64.zip
+    versioned_file: deliverables/greenplum-loaders-rhel6-x86_64.zip
   
 - name: installer_rhel7_gpdb_clients
   type: s3
@@ -126,7 +126,7 @@ resources:
     bucket: {{bucket-name}}
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    regexp: deliverables/greenplum-clients-5.(.*)-rhel7-x86_64.zip
+    versioned_file: deliverables/greenplum-clients-rhel7-x86_64.zip
 
 - name: installer_rhel7_gpdb_loaders
   type: s3
@@ -135,7 +135,7 @@ resources:
     bucket: {{bucket-name}}
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    regexp: deliverables/greenplum-loaders-5.(.*)-rhel7-x86_64.zip
+    versioned_file: deliverables/greenplum-loaders-rhel7-x86_64.zip
 
 - name: installer_sles11_gpdb_clients
   type: s3
@@ -144,7 +144,7 @@ resources:
     bucket: {{bucket-name}}
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    regexp: deliverables/greenplum-clients-5.(.*)-sles11-x86_64.zip
+    versioned_file: deliverables/greenplum-clients-sles11-x86_64.zip
 
 - name: installer_sles11_gpdb_loaders
   type: s3
@@ -153,7 +153,7 @@ resources:
     bucket: {{bucket-name}}
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
-    regexp: deliverables/greenplum-loaders-5.(.*)-sles11-x86_64.zip
+    versioned_file: deliverables/greenplum-loaders-sles11-x86_64.zip
 
 ## ======================================================================
 ## jobs
@@ -269,7 +269,7 @@ jobs:
     params:
       STAGING_SERVER_KEY: {{server_key}}
       STAGING_SERVER_IP: {{server_ip}}
-
+      TARGET_OS: centos
 
 - name: test_client_and_loader_gpdb_centos7
   plan:
@@ -290,6 +290,7 @@ jobs:
     params:
       STAGING_SERVER_KEY: {{server_key}}
       STAGING_SERVER_IP: {{server_ip}}
+      TARGET_OS: centos
 
 - name: test_client_and_loader_gpdb_sles
   plan:
@@ -310,6 +311,7 @@ jobs:
     params:
       STAGING_SERVER_KEY: {{server_key}}
       STAGING_SERVER_IP: {{server_ip}}
+      TARGET_OS: sles
 # TODO: Currently the windows clients and loaders are not packaging correctly.
 #       This task will be used when the team responsible for the CLs is ready
 #       to fix the issues, and integrate the changes into the full CI for gpdb.

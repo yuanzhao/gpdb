@@ -21,7 +21,7 @@ function prep_env_for_sles(){
 set +x && echo $STAGING_SERVER_KEY | base64 -d >key && set -x
 chmod 400 key
 ssh -M -S /tmp/tunnelsock  -fNT -L 5432:localhost:5432 -i key -o StrictHostKeyChecking=no gpadmin@$STAGING_SERVER_IP
-trap "{ ssh -S /tmp/tunnelsock -O exit -i key gpadmin@$STAGING_SERVER_IP; exit 1; }" ERROR
+trap "{ ssh -S /tmp/tunnelsock -O exit -i key gpadmin@$STAGING_SERVER_IP; exit 1; }" ERR
 
 case "$TARGET_OS" in 
   centos)
