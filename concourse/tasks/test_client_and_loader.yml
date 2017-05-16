@@ -12,3 +12,4 @@ run:
 params:
   STAGING_SERVER_KEY:
   STAGING_SERVER_IP:
+  TARGET_OS:
