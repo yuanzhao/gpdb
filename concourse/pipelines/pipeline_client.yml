@@ -25,6 +25,22 @@ resources:
     username: {{docker_username}}
     password: {{docker_password}}
 
+- name: centos-gpdb-dev-7
+  type: docker-image
+  source:
+    repository: pivotaldata/centos-gpdb-dev
+    tag: 7-gcc6.2-llvm3.7
+    username: {{docker_username}}
+    password: {{docker_password}}
+
+- name: sles-gpdb-dev-11-beta
+  type: docker-image
+  source:
+    repository: pivotaldata/sles-gpdb-dev
+    tag: 11-beta
+    username: {{docker_username}}
+    password: {{docker_password}}
+
 # TODO: Currently the windows clients and loaders are not packaging correctly.
 #       This resource will be used when the team responsible for the CLs is
 #       ready to fix the issues, and integrate the changes into the full CI for
@@ -44,6 +60,24 @@ resources:
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
     versioned_file: {{bin_gpdb_centos_versioned_file}}
+
+- name: bin_gpdb_centos7
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    versioned_file: {{bin_gpdb_centos7_versioned_file}}
+
+- name: bin_gpdb_sles11
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    versioned_file: {{bin_gpdb_sles11_versioned_file}}
 
 # TODO: Currently the windows clients and loaders are not packaging correctly.
 #       This resource will be used when the team responsible for the CLs is
@@ -84,6 +118,42 @@ resources:
     region_name: {{aws-region}}
     secret_access_key: {{bucket-secret-access-key}}
     regexp: deliverables/greenplum-loaders-5.(.*)-rhel6-x86_64.zip
+  
+- name: installer_rhel7_gpdb_clients
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    regexp: deliverables/greenplum-clients-5.(.*)-rhel7-x86_64.zip
+
+- name: installer_rhel7_gpdb_loaders
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    regexp: deliverables/greenplum-loaders-5.(.*)-rhel7-x86_64.zip
+
+- name: installer_sles11_gpdb_clients
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    regexp: deliverables/greenplum-clients-5.(.*)-sles11-x86_64.zip
+
+- name: installer_sles11_gpdb_loaders
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    regexp: deliverables/greenplum-loaders-5.(.*)-sles11-x86_64.zip
 
 ## ======================================================================
 ## jobs
@@ -122,6 +192,64 @@ jobs:
       params:
         file: gpdb_artifacts/greenplum-loaders-*-rhel6-x86_64.zip
 
+- name: compile_gpdb_centos7
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      trigger: true
+    - get: gpaddon_src
+    - get: centos-gpdb-dev-7
+  - task: compile_gpdb
+    file: gpdb_src/concourse/tasks/compile_gpdb.yml
+    image: centos-gpdb-dev-7
+    params:
+      IVYREPO_HOST: {{ivyrepo_host}}
+      IVYREPO_REALM: {{ivyrepo_realm}}
+      IVYREPO_USER: {{ivyrepo_user}}
+      IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      TARGET_OS: centos
+      TARGET_OS_VERSION: 7
+      BLD_TARGETS: "clients loaders"
+  - aggregate:
+    - put: bin_gpdb_centos7
+      params:
+        file: gpdb_artifacts/bin_gpdb.tar.gz
+    - put: installer_rhel7_gpdb_clients
+      params:
+        file: gpdb_artifacts/greenplum-clients-*-rhel7-x86_64.zip
+    - put: installer_rhel7_gpdb_loaders
+      params:
+        file: gpdb_artifacts/greenplum-loaders-*-rhel7-x86_64.zip
+
+- name: compile_gpdb_sles11
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      trigger: true
+    - get: gpaddon_src
+    - get: sles-gpdb-dev-11-beta
+  - task: compile_gpdb
+    file: gpdb_src/concourse/tasks/compile_gpdb.yml
+    image: sles-gpdb-dev-11-beta
+    params:
+      IVYREPO_HOST: {{ivyrepo_host}}
+      IVYREPO_REALM: {{ivyrepo_realm}}
+      IVYREPO_USER: {{ivyrepo_user}}
+      IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      TARGET_OS: sles
+      TARGET_OS_VERSION:
+      BLD_TARGETS: "clients loaders"
+  - put: bin_gpdb_sles11
+    params:
+      file: gpdb_artifacts/bin_gpdb.tar.gz
+  - put: installer_sles11_gpdb_clients
+    params:
+      file: gpdb_artifacts/greenplum-clients-*-sles11-x86_64.zip
+  - put: installer_sles11_gpdb_loaders
+    params:
+      file: gpdb_artifacts/greenplum-loaders-*-sles11-x86_64.zip
+
+
 - name: test_client_and_loader_gpdb_centos6
   plan:
   - aggregate:
@@ -135,6 +263,50 @@ jobs:
   - task: test_client_and_loader
     file: gpdb_src/concourse/tasks/test_client_and_loader.yml
     image: centos-gpdb-dev-6
+    input_mapping:
+      installer_gpdb_clients: installer_rhel6_gpdb_clients
+      installer_gpdb_loaders: installer_rhel6_gpdb_loaders
+    params:
+      STAGING_SERVER_KEY: {{server_key}}
+      STAGING_SERVER_IP: {{server_ip}}
+
+
+- name: test_client_and_loader_gpdb_centos7
+  plan:
+  - aggregate:
+    - get: centos-gpdb-dev-7
+    - get: gpdb_src
+    - get: installer_rhel7_gpdb_clients
+      passed: [compile_gpdb_centos7]
+      trigger: true
+    - get: installer_rhel7_gpdb_loaders
+      passed: [compile_gpdb_centos7]
+  - task: test_client_and_loader
+    file: gpdb_src/concourse/tasks/test_client_and_loader.yml
+    image: centos-gpdb-dev-7
+    input_mapping:
+      installer_gpdb_clients: installer_rhel7_gpdb_clients
+      installer_gpdb_loaders: installer_rhel7_gpdb_loaders
+    params:
+      STAGING_SERVER_KEY: {{server_key}}
+      STAGING_SERVER_IP: {{server_ip}}
+
+- name: test_client_and_loader_gpdb_sles
+  plan:
+  - aggregate:
+    - get: sles-gpdb-dev-11-beta
+    - get: gpdb_src
+    - get: installer_sles11_gpdb_clients
+      passed: [compile_gpdb_sles11]
+      trigger: true
+    - get: installer_sles11_gpdb_loaders
+      passed: [compile_gpdb_sles11]
+  - task: test_client_and_loader
+    file: gpdb_src/concourse/tasks/test_client_and_loader.yml
+    image: sles-gpdb-dev-11-beta
+    input_mapping:
+      installer_gpdb_clients: installer_sles11_gpdb_clients
+      installer_gpdb_loaders: installer_sles11_gpdb_loaders
     params:
       STAGING_SERVER_KEY: {{server_key}}
       STAGING_SERVER_IP: {{server_ip}}
