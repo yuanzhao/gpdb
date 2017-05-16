@@ -11,7 +11,7 @@ function test_package(){
   echo $sed_pattern
   sed -i -e $sed_pattern $2/greenplum_$3_path.sh
   source $2/greenplum_$3_path.sh
-  psql -h localhost -p 5432 -U gpadmin -c "select version();" postgres
+  psql -h localhost -p 5432 -U gpadmin -c "select version();" postgres | tee
 }
 function prep_env_for_sles(){
     zypper addrepo --no-gpgcheck http://download.opensuse.org/distribution/11.4/repo/oss/ ossrepo
