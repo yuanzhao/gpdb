@@ -8,7 +8,8 @@ subdir =
 top_builddir = .
 include $(top_builddir)/src/Makefile.global
 
-
+client: 
+	$(MAKE) -C gpAux/clients all
 all:
 #	$(MAKE) -C doc all
 	$(MAKE) -C src all
