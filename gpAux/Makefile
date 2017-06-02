@@ -38,6 +38,7 @@ all : devel
 
 # tell included makefiles where to find build-top-level resources
 BLD_TOP:=$(shell sh -c pwd)
+BLD_ARCH:=$(shell $(BLD_TOP)/releng/set_bld_arch.sh)
 include Makefile.global
 include Makefile.thirdparty
 include releng/releng.mk

@@ -1,9 +1,14 @@
 all: clients
 top_builddir:=../..
-INSTLOC:=$(top_builddir)
+include $(top_builddir)/src/Makefile.global
+ifeq "$(BLD_ARCH)" ""
+BLD_ARCH:=$(shell $(top_builddir)/gpAux/releng/set_bld_arch.sh)
+endif
 
-CLIENT_HOME_DIR:=$(top_builddir)
-LOADERS_HOME_DIR:=$(top_builddir)
+INSTLOC:=${prefix}
+
+CLIENT_HOME_DIR:=${prefix}
+LOADERS_HOME_DIR:=${prefix}
 
 CLIENTINSTLOC=$(CLIENT_HOME_DIR)/greenplum-clients
 CLIENTINSTLOC_BIN=$(CLIENTINSTLOC)/bin
@@ -20,7 +25,6 @@ LOADERSINSTLOC_LIB=$(LOADERSINSTLOC)/lib
 LOADERSINSTLOC_LIB_PWARE=$(LOADERSINSTLOC)/lib/pware
 LOADERSINSTLOC_DOCS=$(LOADERSINSTLOC)/docs
 LOADERSINSTLOC_OPENSOURCE=$(LOADERSINSTLOC)/thirdparty
-include $(top_builddir)/src/Makefile.global
 
 define tmpCLIENT_FILESET
 	pg_dump
@@ -44,13 +48,12 @@ ifneq "$(FILESET_LIB_GCC)" ""
 	(cd $(CLIENTINSTLOC_LIB)/ && $(TAR) cf - -C $(FILESET_LIB_GCC_LOC) $(FILESET_LIB_GCC) | $(TAR) xpf -)$(check_pipe_for_errors)
 endif
 	# ---- copy license files ----
-	cp ${BLD_TOP}/../LICENSE $(CLIENTINSTLOC)
-	cp ${BLD_TOP}/../NOTICE $(CLIENTINSTLOC)
+	cp $(top_builddir)/LICENSE $(CLIENTINSTLOC)
+	cp $(top_builddir)/NOTICE $(CLIENTINSTLOC)
 
 	# ---- create the installer ----
-	$(warn MPP_ARCH=$(MPP_ARCH))
+
 
 	# ---- Updating the version in required packages ----
-	@$(MAKE) set_scripts_version INSTLOC=$(CLIENTINSTLOC)
 	cd install/src/unix/ && \
-	$(MAKE) TAR=$(TAR) PRODUCT=Clients PACKAGE=greenplum-clients README=GPClientToolsUnix VERSION=`perl -pe 's, ,-,g' ../../../../../VERSION` INSTALL_SRC=$(CLIENTINSTLOC) INSTALL_DIR=../../../..
+	$(MAKE) TAR=$(TAR) ADDON_DIR=addon MPP_ARCH_LOWERCASE=$(BLD_ARCH) PRODUCT=Clients PACKAGE=greenplum-clients README=GPClientToolsUnix VERSION=`perl -pe 's, ,-,g' ../../../../../VERSION` INSTALL_SRC=$(CLIENTINSTLOC) INSTALL_DIR=../../../..
