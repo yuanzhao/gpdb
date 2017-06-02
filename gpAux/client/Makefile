@@ -34,10 +34,12 @@ endef
 CLIENT_FILESET = $(strip $(tmpCLIENT_FILESET))
 install: clients
 	echo "installing clients"
+gpaddon:
+	[ -d $(top_builddir)/gpAux/addon ] &&  cp -r $(top_builddir)/../gpaddon_src $(top_builddir)/gpAux/
 
 clients: 
 	if [ "$(enable_clients)" = "yes" ]; then $(MAKE) clients_internal; fi
-clients_internal:
+clients_internal: gpaddon
 	mkdir -p $(CLIENTINSTLOC_BIN)
 	(cd $(INSTLOC)/bin && $(TAR) cf - $(CLIENT_FILESET)) | (cd $(CLIENTINSTLOC_BIN)/ && $(TAR) xpf -)$(check_pipe_for_errors)
 	mkdir -p $(CLIENTINSTLOC_INCLUDE)
