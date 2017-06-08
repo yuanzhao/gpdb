@@ -34,12 +34,10 @@ endef
 CLIENT_FILESET = $(strip $(tmpCLIENT_FILESET))
 install: clients
 	echo "installing clients"
-gpaddon:
-	[ -d $(top_builddir)/gpAux/addon ] &&  cp -r $(top_builddir)/../gpaddon_src $(top_builddir)/gpAux/
 
 clients: 
 	if [ "$(enable_clients)" = "yes" ]; then $(MAKE) clients_internal; fi
-clients_internal: gpaddon
+clients_internal:
 	mkdir -p $(CLIENTINSTLOC_BIN)
 	(cd $(INSTLOC)/bin && $(TAR) cf - $(CLIENT_FILESET)) | (cd $(CLIENTINSTLOC_BIN)/ && $(TAR) xpf -)$(check_pipe_for_errors)
 	mkdir -p $(CLIENTINSTLOC_INCLUDE)
@@ -52,10 +50,3 @@ endif
 	# ---- copy license files ----
 	cp $(top_builddir)/LICENSE $(CLIENTINSTLOC)
 	cp $(top_builddir)/NOTICE $(CLIENTINSTLOC)
-
-	# ---- create the installer ----
-
-
-	# ---- Updating the version in required packages ----
-	cd install/src/unix/ && \
-	$(MAKE) TAR=$(TAR) ADDON_DIR=addon MPP_ARCH_LOWERCASE=$(BLD_ARCH) PRODUCT=Clients PACKAGE=greenplum-clients README=GPClientToolsUnix VERSION=`perl -pe 's, ,-,g' ../../../../../VERSION` INSTALL_SRC=$(CLIENTINSTLOC) INSTALL_DIR=../../../..
