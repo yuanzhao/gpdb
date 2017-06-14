@@ -1,0 +1,100 @@
+## ======================================================================
+## resources
+## ======================================================================
+
+resources:
+- name: gpdb_src
+  type: git
+  source:
+    branch: {{gpdb-git-branch}}
+    private_key: {{gpdb-git-key}}
+    uri: {{gpdb-git-remote}}
+
+- name: gpaddon_src
+  type: git
+  source:
+    branch: {{gpaddon-git-branch}}
+    private_key: {{gpdb-git-key}}
+    uri: {{gpaddon-git-remote}}
+
+- name: centos-gpdb-dev-6
+  type: docker-image
+  source:
+    repository: pivotaldata/centos-gpdb-dev
+    tag: '6-gcc6.2-llvm3.7'
+    username: {{docker_username}}
+    password: {{docker_password}}
+
+- name: bin_gpdb_centos6
+  type: s3
+  source:
+    access_key_id: {{bucket-access-key-id}}
+    bucket: {{bucket-name}}
+    region_name: {{aws-region}}
+    secret_access_key: {{bucket-secret-access-key}}
+    versioned_file: {{bin_gpdb_centos_versioned_file}}
+
+
+## ======================================================================
+## jobs
+## ======================================================================
+
+# Stage 1: Build and C Unit Tests
+
+jobs:
+
+- name: compile_gpdb_centos6
+  plan:
+  - aggregate:
+    - get: gpdb_src
+    - get: gpaddon_src
+    - get: centos-gpdb-dev-6
+  - task: compile_gpdb
+    file: gpdb_src/concourse/tasks/compile_gpdb.yml
+    image: centos-gpdb-dev-6
+    params:
+      IVYREPO_HOST: {{ivyrepo_host}}
+      IVYREPO_REALM: {{ivyrepo_realm}}
+      IVYREPO_USER: {{ivyrepo_user}}
+      IVYREPO_PASSWD: {{ivyrepo_passwd}}
+      TARGET_OS: centos
+      TARGET_OS_VERSION: 6
+  - aggregate:
+    - put: bin_gpdb_centos6
+      params:
+        file: gpdb_artifacts/bin_gpdb.tar.gz
+    - put: installer_rhel6_gpdb_clients
+      params:
+        file: gpdb_artifacts/greenplum-clients-*-rhel6-x86_64.zip
+    - put: installer_rhel6_gpdb_loaders
+      params:
+        file: gpdb_artifacts/greenplum-loaders-*-rhel6-x86_64.zip
+
+- name: test_client_and_loader_gpdb_centos6
+  plan:
+  - aggregate:
+    - get: centos-gpdb-dev-6
+    - get: gpdb_src
+    - get: installer_rhel6_gpdb_clients
+      passed: [compile_gpdb_centos6]
+      trigger: true
+    - get: installer_rhel6_gpdb_loaders
+      passed: [compile_gpdb_centos6]
+      trigger: true
+  - task: test_client_and_loader
+    file: gpdb_src/concourse/tasks/test_client_and_loader.yml
+    image: centos-gpdb-dev-6
+
+- name: regression_tests_gpcloud_centos
+  plan:
+  - aggregate:
+    - get: gpdb_src
+      passed: [compile_gpdb_centos6]
+    - get: bin_gpdb
+      resource: bin_gpdb_centos6
+      passed: [compile_gpdb_centos6]
+      trigger: true
+    - get: centos-gpdb-dev-6
+  - task: regression_tests_gpcloud
+    file: gpdb_src/concourse/tasks/regression_tests_pgbouncer.yml
+    image: centos-gpdb-dev-6
