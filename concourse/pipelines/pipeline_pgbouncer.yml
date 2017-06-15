@@ -68,6 +68,7 @@ jobs:
   plan:
   - aggregate:
     - get: gpdb_src
+      trigger: true
     - get: gpaddon_src
     - get: centos-gpdb-dev-6
   - task: compile_gpdb
@@ -93,16 +94,16 @@ jobs:
       passed: [compile_gpdb_centos6]
       trigger: true
 
-- name: regression_tests_gpcloud_centos
-  plan:
-  - aggregate:
-    - get: gpdb_src
-      passed: [compile_gpdb_centos6]
-    - get: bin_gpdb
-      resource: bin_gpdb_centos6
-      passed: [compile_gpdb_centos6]
-      trigger: true
-    - get: centos-gpdb-dev-6
-  - task: regression_tests_gpcloud
-    file: gpdb_src/concourse/tasks/regression_tests_pgbouncer.yml
-    image: centos-gpdb-dev-6
+#- name: regression_tests_gpcloud_centos
+#  plan:
+#  - aggregate:
+#    - get: gpdb_src
+#      passed: [compile_gpdb_centos6]
+#    - get: bin_gpdb
+#      resource: bin_gpdb_centos6
+#      passed: [compile_gpdb_centos6]
+#      trigger: true
+#    - get: centos-gpdb-dev-6
+#  - task: regression_tests_gpcloud
+#    file: gpdb_src/concourse/tasks/regression_tests_pgbouncer.yml
+#    image: centos-gpdb-dev-6
