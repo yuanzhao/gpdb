@@ -1,5 +1,0 @@
-"marko" "kama"
-"postgres" "asdasd"
-;Commented out line should be ignored.
-"pgbouncer" "fake"
-"pswcheck" "pgbouncer-check"
