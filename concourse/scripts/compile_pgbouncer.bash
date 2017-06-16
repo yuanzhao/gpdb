@@ -138,7 +138,7 @@ function build_pgbouncer() {
     ./configure
     make; make install
   popd
-
+}
 function _main() {
   case "$TARGET_OS" in
    centos)
