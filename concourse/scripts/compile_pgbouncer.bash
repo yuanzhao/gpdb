@@ -134,7 +134,8 @@ function export_gpdb_win32_ccl() {
 }
 
 function build_pgbouncer() {
-  pushd gpdb_src/gpAux/extentions/pgbouncer
+  pushd gpdb_src/gpAux/extensions/pgbouncer
+    ./autogen.sh
     ./configure
     make; make install
   popd
