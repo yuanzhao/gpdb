@@ -136,7 +136,7 @@ function export_gpdb_win32_ccl() {
 function build_pgbouncer() {
   pushd gpdb_src/gpAux/extensions/pgbouncer
     ./autogen.sh
-    ./configure
+    ./configure --prefix=$GREENPLUM_INSTALL_DIR --with-libevent=libevent-prefix
     make; make install
   popd
 }
