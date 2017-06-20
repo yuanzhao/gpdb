@@ -46,10 +46,11 @@ function gen_env(){
 }
 
 function install_pgbouncer(){
-	cd "\${1}/gpdb_src/gpAux/extensions/pgbouncer"
+	pushd gpdb_src/gpAux/extensions/pgbouncer
 	./autogen.sh
 	./configure --prefix=/usr/local/greenplum-db-devel --with-libevent=libevent-prefix
 	make; make install
+	popd
 }
 function setup_pgbouncer(){
 	cat > pg.ini <<-IEOF
@@ -70,16 +71,17 @@ function setup_pgbouncer(){
 	"pgtest" "changeme"
 	UEOF
         echo "host     all         pgtest         127.0.0.1/28    md5" >> $MASTER_DATA_DIRECTORY/pg_hba.conf 	
-	pgbouncer -d pg.ini	
+	su gpadmin -c pgbouncer -d pg.ini	
 	
 }
 function install_ldap(){
 	wget ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/openldap-2.4.45.tgz
 	tar -xvf openldap-2.4.45.tgz
-	cd openldap-2.4.45
+	pushd openldap-2.4.45
 	./configure
 	make depend
 	make; make install
+	popd
 }
 
 function setup_ldap(){
@@ -140,7 +142,10 @@ function _main() {
 	time setup_gpadmin_user
 	time make_cluster
 	time gen_env
-
+	time install_ldap
+	time setup_ldap
+	time install_pgbouncer 
+	time setup_pgbouncer
 	time run_regression_test
 }
 
