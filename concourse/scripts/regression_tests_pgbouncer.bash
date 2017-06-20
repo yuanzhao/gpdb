@@ -37,15 +37,21 @@ function gen_env(){
 	cd "\${1}/gpdb_src/gpAux"
 	source gpdemo/gpdemo-env.sh
 
-	cd extensions/pgbouncer
-	./comfigure --prefix=$pgbouncer_instloc --with-libevent=libevent-prefix
-	make
-	make install
-	export PATH=$pgbouncer_instloc:$PATH
-	cat > users.txt <<-UEOF
-	"pgtest" "changeme"
-	UEOF
 
+	EOF
+
+	chown -R gpadmin:gpadmin $(pwd)
+	chown gpadmin:gpadmin /home/gpadmin/run_regression_test.sh
+	chmod a+x /home/gpadmin/run_regression_test.sh
+}
+
+function install_pgbouncer(){
+	cd "\${1}/gpdb_src/gpAux/extensions/pgbouncer"
+	./autogen.sh
+	./configure --prefix=/usr/local/greenplum-db-devel --with-libevent=libevent-prefix
+	make; make install
+}
+function setup_pgbouncer(){
 	cat > pg.ini <<-IEOF
 	[databases]
 	template1 = host=127.0.0.1 port=15432 dbname=template1
@@ -59,27 +65,56 @@ function gen_env(){
 	idfile = pgbouncer.pid
 	admin_users = pgtest
 	IEOF
-#	wget -P /tmp http://www-us.apache.org/dist/hadoop/common/hadoop-2.7.3/hadoop-2.7.3.tar.gz
-#	tar zxf /tmp/hadoop-2.7.3.tar.gz -C /tmp
-#	export HADOOP_HOME=/tmp/hadoop-2.7.3
-#
-#
-#	\${HADOOP_HOME}/bin/hdfs namenode -format -force
-#	\${HADOOP_HOME}/sbin/start-dfs.sh
-#
-#	cd "\${1}/gpdb_src/gpAux/extensions/gphdfs/regression/integrate"
-#	HADOOP_HOST=localhost HADOOP_PORT=9000 ./generate_gphdfs_data.sh
-#	cd "\${1}/gpdb_src/gpAux/extensions/gphdfs/regression"
-#	GP_HADOOP_TARGET_VERSION=cdh4.1 HADOOP_HOST=localhost HADOOP_PORT=9000 ./run_gphdfs_regression.sh
-#	exit 0
-	EOF
 
-	chown -R gpadmin:gpadmin $(pwd)
-	chown gpadmin:gpadmin /home/gpadmin/run_regression_test.sh
-	chmod a+x /home/gpadmin/run_regression_test.sh
+	cat > users.txt <<-UEOF
+	"pgtest" "changeme"
+	UEOF
+        echo "host     all         pgtest         127.0.0.1/28    md5" >> $MASTER_DATA_DIRECTORY/pg_hba.conf 	
+	pgbouncer -d pg.ini	
+	
+}
+function install_ldap(){
+	wget ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/openldap-2.4.45.tgz
+	tar -xvf openldap-2.4.45.tgz
+	cd openldap-2.4.45
+	./configure
+	make depend
+	make; make install
 }
 
+function setup_ldap(){
+	cat > slapd.ldif <<-LEOF
+	dn: cn=config
+	objectClass: olcGlobal
+	cn: config
+	olcArgsFile: /usr/local/var/run/slapd.args
+	olcPidFile: /usr/local/var/run/slapd.pid
+
+	dn: cn=schema,cn=config
+	objectClass: olcSchemaConfig
+	cn: schema
+
+	include: file:///usr/local/etc/openldap/schema/core.ldif
+
+	dn: olcDatabase=frontend,cn=config
+	objectClass: olcDatabaseConfig
+	objectClass: olcFrontendConfig
+	olcDatabase: frontend
+
+
+	dn: olcDatabase=mdb,cn=config
+	objectClass: olcDatabaseConfig
+	objectClass: olcMdbConfig
+	olcDatabase: mdb
+	olcSuffix: dc=my-domain,dc=com
+	olcRootDN: cn=Manager,dc=my-domain,dc=com
+	olcRootPW: secret
+	olcDbDirectory:    /usr/local/var/openldap-data
+	olcDbIndex: objectClass eq	
+	LEOF
+}
 function run_regression_test() {
+	
 	su - gpadmin -c "bash /home/gpadmin/run_regression_test.sh $(pwd)"
 }
 
