@@ -71,7 +71,7 @@ function setup_pgbouncer(){
 	"pgtest" "changeme"
 	UEOF
         echo "host     all         pgtest         127.0.0.1/28    md5" >> $MASTER_DATA_DIRECTORY/pg_hba.conf 	
-	su gpadmin -c pgbouncer -d pg.ini	
+	su gpadmin -c "pgbouncer -d pg.ini"
 	
 }
 function install_ldap(){
