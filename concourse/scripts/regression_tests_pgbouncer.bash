@@ -14,7 +14,9 @@ function gen_env(){
 
 	cd "\${1}/gpdb_src/gpAux"
 	source gpdemo/gpdemo-env.sh
-
+        echo "host     all         pgbtest         127.0.0.1/28    trust" >> \$MASTER_DATA_DIRECTORY/pg_hba.conf
+        su - gpadmin -c "psql postgres -c "create user pgbtest superuser password 'changeme'";"
+        su - gpadmin -c "psql -U pgbtest -p 6543 -h 127.0.0.1 postgres";
 
 	EOF
 
@@ -42,13 +44,12 @@ function setup_pgbouncer(){
 	auth_file = users.txt
 	logfile = pgbouncer.log
 	pidfile = pgbouncer.pid
-	admin_users = pgtest
+	admin_users = pbtest
 	IEOF
 
 	cat > users.txt <<-UEOF
 	"pgbtest" "changeme"
 	UEOF
-        echo "host     all         pgtest         127.0.0.1/28    trust" >> $MASTER_DATA_DIRECTORY/pg_hba.conf 	
 	su gpadmin -c "pgbouncer -d pg.ini"
 	
 }
