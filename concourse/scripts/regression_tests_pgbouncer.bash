@@ -15,8 +15,8 @@ function gen_env(){
 	cd "\${1}/gpdb_src/gpAux"
 	source gpdemo/gpdemo-env.sh
         echo "host     all         pgbtest         127.0.0.1/28    trust" >> \$MASTER_DATA_DIRECTORY/pg_hba.conf
-        su - gpadmin -c "psql postgres -c "create user pgbtest superuser password 'changeme'";"
-        su - gpadmin -c "psql -U pgbtest -p 6543 -h 127.0.0.1 postgres";
+        psql postgres -c "create user pgbtest superuser password 'changeme';"
+        psql -U pgbtest -p 6543 -h 127.0.0.1 postgres;
 
 	EOF
 
