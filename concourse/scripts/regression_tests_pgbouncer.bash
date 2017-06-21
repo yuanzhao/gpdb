@@ -108,9 +108,6 @@ function setup_gpadmin_user() {
 	./gpdb_src/concourse/scripts/setup_gpadmin_user.bash "$TARGET_OS"
 }
 
-function pgb_connect_gpdb(){
-}
-		
 function _main() {
 	if [ -z "$TARGET_OS" ]; then
 		echo "FATAL: TARGET_OS is not set"
