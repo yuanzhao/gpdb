@@ -63,7 +63,7 @@ function setup_pgbouncer(){
 	auth_type = plain
 	auth_file = users.txt
 	logfile = pgbouncer.log
-	idfile = pgbouncer.pid
+	pidfile = pgbouncer.pid
 	admin_users = pgtest
 	IEOF
 
