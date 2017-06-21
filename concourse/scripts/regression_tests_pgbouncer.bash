@@ -46,9 +46,9 @@ function setup_pgbouncer(){
 	IEOF
 
 	cat > users.txt <<-UEOF
-	"pgtest" "changeme"
+	"pgbtest" "changeme"
 	UEOF
-        echo "host     all         pgtest         127.0.0.1/28    md5" >> $MASTER_DATA_DIRECTORY/pg_hba.conf 	
+        echo "host     all         pgtest         127.0.0.1/28    trust" >> $MASTER_DATA_DIRECTORY/pg_hba.conf 	
 	su gpadmin -c "pgbouncer -d pg.ini"
 	
 }
@@ -92,16 +92,25 @@ function setup_ldap(){
 	olcDbDirectory:    /usr/local/var/openldap-data
 	olcDbIndex: objectClass eq	
 	LEOF
+	mkdir /usr/local/etc/slapd.d
+	/usr/local/sbin/slapadd  -n 0 -F /usr/local/etc/slapd.d/  -l slapd.ldif
+	/usr/local/libexec/slapd -F /usr/local/etc/slapd.d
+	ldapsearch -x -b '' -s base '(objectclass=*)' namingContexts
 }
 function run_regression_test() {
 	
 	su - gpadmin -c "bash /home/gpadmin/run_regression_test.sh $(pwd)"
+	su - gpadmin -c "psql postgres -c "create user pgbtest superuser password 'changeme'";"
+	su - gpadmin -c "psql -U pgbtest -p 6543 -h 127.0.0.1 postgres";
 }
 
 function setup_gpadmin_user() {
 	./gpdb_src/concourse/scripts/setup_gpadmin_user.bash "$TARGET_OS"
 }
 
+function pgb_connect_gpdb(){
+}
+		
 function _main() {
 	if [ -z "$TARGET_OS" ]; then
 		echo "FATAL: TARGET_OS is not set"
