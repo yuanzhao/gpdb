@@ -2229,6 +2229,11 @@ StartTransaction(void)
 	TransactionState s;
 	VirtualTransactionId vxid;
 
+	if (DistributedTransactionContext == DTX_CONTEXT_QE_ENTRY_DB_SINGLETON)
+	{
+		SIMPLE_FAULT_INJECTOR(TransactionStartUnderEntryDbSingleton);
+	}
+
 	/*
 	 * Let's just make sure the state stack is empty
 	 */
@@ -5516,7 +5521,6 @@ static void
 CleanupSubTransaction(void)
 {
 	TransactionState s = CurrentTransactionState;
-	TransactionId localXid = s->transactionId;
 
 	ShowTransactionState("CleanupSubTransaction");
 

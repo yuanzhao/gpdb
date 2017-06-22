@@ -842,7 +842,6 @@ static void* message_main(apr_thread_t* thread_, void* arg_)
 {
 	apr_queue_t *queue = arg_;
 	void *query = NULL;
-	char *query_str = NULL;
 	apr_status_t status;
 
 	TR2(("In message_main: error_disk_space_percentage = %d, warning_disk_space_percentage = %d, disk_space_interval = %d, max_disk_space_messages_per_interval = %d\n",
@@ -868,10 +867,9 @@ static void* message_main(apr_thread_t* thread_, void* arg_)
 		}
 		else
 		{ // send the message
-			query_str = query; // have to do this because we still build on SUN!!!
-			if (!gpdb_exec_search_for_at_least_one_row((const char *)query_str, NULL))
+			if (!gpdb_exec_search_for_at_least_one_row((const char *)query, NULL))
 			{
-				TR0(("message_main ERROR: query %s failed. Cannot send message\n", query_str));
+				TR0(("message_main ERROR: query %s failed. Cannot send message\n", query));
 			}
 			free(query);
 		}
@@ -1530,6 +1528,7 @@ int main(int argc, const char* const argv[])
 			interuptable_sleep(30); // sleep to prevent loop of forking process and failing
 			gpmon_fatal(FLINE, "\nfailed (1) to open perfmon log file %s\n", mmon_log_filename);
 		}
+		TR0(("starting mmon logging\n"));
 	}
 
 	/* check port */

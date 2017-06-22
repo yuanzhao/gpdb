@@ -175,6 +175,8 @@ FaultInjectorIdentifierEnumToString[] = {
 		/* report if compacting is in progress */
 	_("change_tracking_disable"),
 		/* inject fault during fsync to Change Tracking log */
+	_("transaction_start_under_entry_db_singleton"),
+		/* inject fault during transaction start with DistributedTransactionContext in ENTRY_DB_SINGLETON mode */
 	_("transaction_abort_after_distributed_prepared"),
 		/* inject fault after transaction is prepared */
 	_("transaction_commit_pass1_from_create_pending_to_created"),
@@ -251,8 +253,6 @@ FaultInjectorIdentifierEnumToString[] = {
 	 /* inject fault before we close workfile in ExecHashJoinNewBatch */
 	_("update_committed_eof_in_persistent_table"),
 		/* inject fault before committed EOF is updated in gp_persistent_relation_node for Append Only segment files */
-	_("exec_simple_query_end_command"),
-		/* inject fault before EndCommand in exec_simple_query */
 	_("multi_exec_hash_large_vmem"),
 		/* large palloc inside MultiExecHash to attempt to exceed vmem limit */
 	_("execsort_before_sorting"),

@@ -597,7 +597,7 @@ get_rel_infos(migratorContext *ctx, const DbInfo *dbinfo,
 					aocsseg->segno = atoi(PQgetvalue(aores, j, PQfnumber(aores, "segno")));
 					aocsseg->tupcount = atoll(PQgetvalue(aores, j, PQfnumber(aores, "tupcount")));
 					aocsseg->varblockcount = atoll(PQgetvalue(aores, j, PQfnumber(aores, "varblockcount")));
-					aocsseg->vpinfo = strdup(PQgetvalue(aores, j, PQfnumber(aores, "vpinfo")));
+					aocsseg->vpinfo = pg_strdup(ctx, PQgetvalue(aores, j, PQfnumber(aores, "vpinfo")));
 					aocsseg->modcount = atoll(PQgetvalue(aores, j, PQfnumber(aores, "modcount")));
 					aocsseg->state = atoi(PQgetvalue(aores, j, PQfnumber(aores, "state")));
 					aocsseg->version = atoi(PQgetvalue(aores, j, PQfnumber(aores, "formatversion")));
@@ -607,15 +607,16 @@ get_rel_infos(migratorContext *ctx, const DbInfo *dbinfo,
 			}
 
 			/*
-			 * Get contents of pg_aovisimap_<oid>
+			 * Get contents of the auxiliary pg_aovisimap_<oid> relation.  In
+			 * GPDB 4.3, the pg_aovisimap_<oid>.visimap field was of type "bit
+			 * varying", but we didn't actually store a valid "varbit" datum in
+			 * it. Because of that, we won't get the valid data out by calling
+			 * the varbit output function on it.  Create a little function to
+			 * blurp out its content as a bytea instead. in 5.0 and above, the
+			 * datatype is also nominally a bytea.
 			 *
-			 * In GPDB 4.3, the pg_aovisimap_<oid>.visimap field was of type "bit varying",
-			 * but we didn't actually store a valid "varbit" datum in it. Because of that,
-			 * we won't get the valid data out by calling the varbit output function on it.
-			 * Create a little function to blurp out its content as a bytea instead. in
-			 * 5.0 and above, the datatype is also nominally a bytea.
-			 *
-			 * pg_aovisimap_<oid> is identical for row and column oriented tables.
+			 * pg_aovisimap_<oid> is identical for row and column oriented
+			 * tables.
 			 */
 			if (GET_MAJOR_VERSION(ctx->old.major_version) <= 802 && whichCluster == CLUSTER_OLD)
 			{
@@ -650,7 +651,7 @@ get_rel_infos(migratorContext *ctx, const DbInfo *dbinfo,
 
 				aovisimap->segno = atoi(PQgetvalue(aores, j, PQfnumber(aores, "segno")));
 				aovisimap->first_row_no = atoll(PQgetvalue(aores, j, PQfnumber(aores, "first_row_no")));
-				aovisimap->visimap = strdup(PQgetvalue(aores, j, PQfnumber(aores, "visimap")));
+				aovisimap->visimap = pg_strdup(ctx, PQgetvalue(aores, j, PQfnumber(aores, "visimap")));
 			}
 
 			PQclear(aores);

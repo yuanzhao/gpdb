@@ -138,7 +138,7 @@ static ChunkTransportStateEntry *startOutgoingConnections(ChunkTransportState *t
 														  Slice *sendSlice,
 														  int *pOutgoingCount);
 
-static void format_fd_set(StringInfo buf, int nfds, mpp_fd_set fds, char* pfx, char *sfx);
+static void format_fd_set(StringInfo buf, int nfds, mpp_fd_set *fds, char* pfx, char *sfx);
 static char *format_sockaddr(struct sockaddr *sa, char* buf, int bufsize);
 
 static void setupOutgoingConnection(ChunkTransportState *transportStates,
@@ -325,6 +325,7 @@ setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort
 	else
 		*listenerPort = ntohs(((struct sockaddr_in*)&addr)->sin_port);
 
+	freeaddrinfo(addrs);
 	return;
 
 error:
@@ -332,9 +333,10 @@ error:
 	if (fd >= 0)
 		closesocket(fd);
 	errno = errnoSave;
+	freeaddrinfo(addrs);
 	ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 					errmsg("Interconnect Error: Could not set up tcp listener socket."),
-					errdetail("%m%s", fun)));
+					errdetail("%s: %m", fun)));
 }                               /* setupListeningSocket */
 
 /*
@@ -468,7 +470,7 @@ readPacket(MotionConn *conn, ChunkTransportState *transportStates)
 					{
 						ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 										errmsg("Interconnect error reading an incoming packet."),
-										errdetail("%m%s from seg%d at %s",
+										errdetail("%s from seg%d at %s: %m",
 												  "select",
 												  conn->remoteContentId,
 												  conn->remoteHostAndPort)));
@@ -481,7 +483,7 @@ readPacket(MotionConn *conn, ChunkTransportState *transportStates)
 			{
 				ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 								errmsg("Interconnect error reading an incoming packet."),
-								errdetail("%m%s from seg%d at %s",
+								errdetail("%s from seg%d at %s: %m",
 										  "read",
 										  conn->remoteContentId,
 										  conn->remoteHostAndPort)));
@@ -698,7 +700,7 @@ setupOutgoingConnection(ChunkTransportState *transportStates, ChunkTransportStat
 		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 						errmsg("Interconnect error setting up outgoing "
 							   "connection."),
-						errdetail("%m%s", "socket")));
+						errdetail("%s: %m", "socket")));
 
 	/* make socket non-blocking BEFORE we connect. */
 	if (!pg_set_noblock(conn->sockfd))
@@ -706,7 +708,7 @@ setupOutgoingConnection(ChunkTransportState *transportStates, ChunkTransportStat
 		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 						errmsg("Interconnect error setting up outgoing "
 							   "connection."),
-						errdetail("%m%s", "fcntl(O_NONBLOCK)")));
+						errdetail("%s: %m", "fcntl(O_NONBLOCK)")));
 	}
 
 	/* Allow bind() to succeed even if the port is in TIME_WAIT state. */
@@ -716,7 +718,7 @@ setupOutgoingConnection(ChunkTransportState *transportStates, ChunkTransportStat
 		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 						errmsg("Interconnect error setting up outgoing "
 							   "connection."),
-						errdetail("%m %s", "setsockopt(SO_REUSEADDR)")));
+						errdetail("%s: %m", "setsockopt(SO_REUSEADDR)")));
 
 
 	/*
@@ -852,7 +854,7 @@ updateOutgoingConnection(ChunkTransportState *transportStates, ChunkTransportSta
 						errmsg("Interconnect could not connect to seg%d %s",
 							   conn->remoteContentId,
 							   conn->remoteHostAndPort),
-						errdetail("%m%s sockfd=%d",
+						errdetail("%s sockfd=%d: %m",
 								  "getsockopt(SO_ERROR)",
 								  conn->sockfd)));
 	}
@@ -868,7 +870,7 @@ updateOutgoingConnection(ChunkTransportState *transportStates, ChunkTransportSta
 			ereport(LOG, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 						  errmsg("Interconnect could not connect to seg%d %s "
 								 "pid=%d; "
-								 "will retry. %m%s",
+								 "will retry. %s: %m",
 								 conn->remoteContentId,
 								 conn->remoteHostAndPort,
 								 conn->cdbProc->pid,
@@ -922,7 +924,7 @@ sendRegisterMessage(ChunkTransportState *transportStates, ChunkTransportStateEnt
 		{
 			ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 							errmsg("Interconnect error after making connection."),
-							errdetail("%m%s sockfd=%d remote=%s",
+							errdetail("%s sockfd=%d remote=%s: %m",
 									  "getsockname",
 									  conn->sockfd,
 									  conn->remoteHostAndPort)));
@@ -979,7 +981,7 @@ sendRegisterMessage(ChunkTransportState *transportStates, ChunkTransportStateEnt
 								   "message to seg%d at %s",
 								   conn->remoteContentId,
 								   conn->remoteHostAndPort),
-							errdetail("%m%s pid=%d sockfd=%d local=%s",
+							errdetail("%s pid=%d sockfd=%d local=%s: %m",
 									  "write",
 									  conn->cdbProc->pid,
 									  conn->sockfd,
@@ -1056,7 +1058,7 @@ readRegisterMessage(ChunkTransportState *transportStates,
 			ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 							errmsg("Interconnect error reading register message "
 								   "from %s", conn->remoteHostAndPort),
-							errdetail("%m%s sockfd=%d local=%s",
+							errdetail("%s sockfd=%d local=%s: %m",
 									  "read",
 									  conn->sockfd,
 									  conn->localHostAndPort)));
@@ -1290,7 +1292,7 @@ acceptIncomingConnection(void)
 				ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 								errmsg("Interconnect error on listener port %d",
 									   Gp_listener_port),
-								errdetail("%m%s sockfd=%d",
+								errdetail("%s sockfd=%d: %m",
 										  "accept",
 										  TCP_listenerFd)));
 				break;          /* not reached */
@@ -1302,7 +1304,7 @@ acceptIncomingConnection(void)
 				ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 								errmsg("Interconnect error on listener port %d",
 									   Gp_listener_port),
-								errdetail("%m%s sockfd=%d",
+								errdetail("%s sockfd=%d: %m",
 										  "accept",
 										  TCP_listenerFd)));
 				break;          /* not reached */
@@ -1312,7 +1314,7 @@ acceptIncomingConnection(void)
 							  errmsg("Interconnect connection request not "
 									 "completed on listener port %d",
 									 Gp_listener_port),
-							  errdetail("%m%s sockfd=%d",
+							  errdetail("%s sockfd=%d: %m",
 										"accept",
 										TCP_listenerFd)));
 		}                       /* switch (errno) */
@@ -1340,7 +1342,7 @@ acceptIncomingConnection(void)
 	{
 		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 						errmsg("Interconnect error after accepting connection."),
-						errdetail("%m%s sockfd=%d remote=%s",
+						errdetail("%s sockfd=%d remote=%s: %m",
 								  "getsockname",
 								  newsockfd,
 								  conn->remoteHostAndPort)));
@@ -1353,7 +1355,7 @@ acceptIncomingConnection(void)
 	{
 		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 						errmsg("Interconnect error after accepting connection."),
-						errdetail("%m%s sockfd=%d remote=%s local=%s",
+						errdetail("%s sockfd=%d remote=%s local=%s: %m",
 								  "fcntl(O_NONBLOCK)",
 								  newsockfd,
 								  conn->remoteHostAndPort,
@@ -1697,9 +1699,9 @@ SetupTCPInterconnect(EState *estate)
 		{
 			initStringInfo(&logbuf);
 
-			format_fd_set(&logbuf, highsock+1, rset, "r={", "} ");
-			format_fd_set(&logbuf, highsock+1, wset, "w={", "} ");
-			format_fd_set(&logbuf, highsock+1, eset, "e={", "}");
+			format_fd_set(&logbuf, highsock+1, &rset, "r={", "} ");
+			format_fd_set(&logbuf, highsock+1, &wset, "w={", "} ");
+			format_fd_set(&logbuf, highsock+1, &eset, "e={", "}");
 
 			elapsed_ms = gp_get_elapsed_ms(&startTime);
 
@@ -1735,9 +1737,9 @@ SetupTCPInterconnect(EState *estate)
 				if (n > 0)
 				{
 					appendStringInfo(&logbuf, "result=%d  Ready: ", n);
-					format_fd_set(&logbuf, highsock+1, rset, "r={", "} ");
-					format_fd_set(&logbuf, highsock+1, wset, "w={", "} ");
-					format_fd_set(&logbuf, highsock+1, eset, "e={", "}");
+					format_fd_set(&logbuf, highsock+1, &rset, "r={", "} ");
+					format_fd_set(&logbuf, highsock+1, &wset, "w={", "} ");
+					format_fd_set(&logbuf, highsock+1, &eset, "e={", "}");
 				}
 				else
 					appendStringInfoString(&logbuf, n < 0 ? "error" : "timeout");
@@ -1754,7 +1756,7 @@ SetupTCPInterconnect(EState *estate)
 			if (errno == EINTR)
 				continue;
 			ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
-							errmsg("Interconnect error: %m%s", "select")));
+							errmsg("Interconnect error: %s: %m", "select")));
 		}
 
 		/*
@@ -2170,12 +2172,9 @@ TeardownTCPInterconnect(ChunkTransportState *transportStates,
 	transportStates->activated = false;
 	transportStates->sliceTable = NULL;
 
-	if (transportStates != NULL)
-	{
-		if (transportStates->states != NULL)
-			pfree(transportStates->states);
-		pfree(transportStates);
-	}
+	if (transportStates->states != NULL)
+		pfree(transportStates->states);
+	pfree(transportStates);
 
 	if (forceEOS)
 		RESUME_INTERRUPTS();
@@ -2216,14 +2215,14 @@ print_connection(ChunkTransportState *transportStates, int fd, const char *msg)
 #endif
 
 void
-format_fd_set(StringInfo buf, int nfds, mpp_fd_set fds, char* pfx, char *sfx)
+format_fd_set(StringInfo buf, int nfds, mpp_fd_set *fds, char* pfx, char *sfx)
 {
 	int     i;
 
 	appendStringInfoString(buf, pfx);
 	for (i = 1; i < nfds; i++)
 	{
-		if (MPP_FD_ISSET(i, &fds))
+		if (MPP_FD_ISSET(i, fds))
 			appendStringInfo(buf, "%d,", i);
 	}
 
@@ -2335,7 +2334,7 @@ flushInterconnectListenerBacklog(void)
 				{
 					ereport(DEBUG3, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 									 errmsg("Interconnect error while clearing incoming connections."),
-									 errdetail("%m%s sockfd=%d", "accept", newfd)));
+									 errdetail("%s sockfd=%d: %m", "accept", newfd)));
 					continue;
 				}
 
@@ -2349,7 +2348,7 @@ flushInterconnectListenerBacklog(void)
 					{
 						ereport(LOG, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 									  errmsg("Interconnect error while clearing incoming connections."),
-									  errdetail("%m%s sockfd=%d remote=%s",
+									  errdetail("%s sockfd=%d remote=%s: %m",
 												"getsockname",
 												newfd,
 												remoteHostAndPort)));
@@ -2384,7 +2383,7 @@ flushInterconnectListenerBacklog(void)
 		{
 			ereport(LOG, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 						  errmsg("Interconnect error during listener cleanup."),
-						  errdetail("%m%s sockfd=%d", "select", TCP_listenerFd)));
+						  errdetail("%s sockfd=%d: %m", "select", TCP_listenerFd)));
 		}
 
 		/*
@@ -2517,7 +2516,7 @@ waitOnOutbound(ChunkTransportStateEntry *pEntry)
 				MPP_FD_CLR(conn->sockfd, &waitset);
 				/* we may have finished */
 				conn_count--;
-				elog(LOG, "TeardownTCPInterconnect: waitOnOutbound %m%s", "recv");
+				elog(LOG, "TeardownTCPInterconnect: waitOnOutbound %s: %m", "recv");
 				continue;
 			}
 		}
@@ -2675,7 +2674,7 @@ RecvTupleChunkFromAnyTCP(MotionLayerState *mlStates,
 				continue;
 			ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 							errmsg("Interconnect error receiving an incoming packet."),
-							errdetail("%m%s", "select")));
+							errdetail("%s: %m", "select")));
 		}
 #ifdef AMS_VERBOSE_LOGGING
 		elog(DEBUG5, "RecvTupleChunkFromAny() select() returned %d ready sockets", n);

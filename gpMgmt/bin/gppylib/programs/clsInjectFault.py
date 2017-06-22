@@ -348,6 +348,7 @@ class GpInjectFaultProgram:
 			      "checkpoint (inject fault before checkpoint is taken), " \
 			      "change_tracking_compacting_report (report if compacting is in progress), " \
 			      "change_tracking_disable (inject fault before fsync to Change Tracking log files), " \
+			      "transaction_start_under_entry_db_singleton (inject fault during transaction start with DistributedTransactionContext in ENTRY_DB_SINGLETON mode), " \
 			      "transaction_abort_after_distributed_prepared (abort prepared transaction), " \
 			      "transaction_commit_pass1_from_create_pending_to_created, " \
 			      "transaction_commit_pass1_from_drop_in_memory_to_drop_pending, " \
@@ -389,7 +390,6 @@ class GpInjectFaultProgram:
 			      "workfile_write_failure (inject fault to simulate workfile write failure), " \
                   "workfile_hashjoin_failure (inject fault before we close workfile in ExecHashJoinNewBatch), "\
 			      "update_committed_eof_in_persistent_table (inject fault before committed EOF is updated in gp_persistent_relation_node for Append Only segment files), " \
-			      "exec_simple_query_end_command (inject fault before EndCommand in exec_simple_query), " \
 			      "multi_exec_hash_large_vmem (allocate large vmem using palloc inside MultiExecHash to attempt to exceed vmem limit), " \
 			      "execsort_before_sorting (inject fault in nodeSort after receiving all tuples and before sorting), " \
 			      "execsort_mksort_mergeruns (inject fault in MKSort during the mergeruns phase), " \
