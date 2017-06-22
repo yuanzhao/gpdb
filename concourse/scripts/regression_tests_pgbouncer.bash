@@ -102,8 +102,6 @@ function setup_ldap(){
 function run_regression_test() {
 	
 	su - gpadmin -c "bash /home/gpadmin/run_regression_test.sh $(pwd)"
-	su - gpadmin -c "psql postgres -c "create user pgbtest superuser password 'changeme'";"
-	su - gpadmin -c "psql -U pgbtest -p 6543 -h 127.0.0.1 postgres";
 }
 
 function setup_gpadmin_user() {
