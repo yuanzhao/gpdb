@@ -99,7 +99,7 @@ function setup_ldap(){
 	olcDbIndex: objectClass eq	
 	LEOF
 
-	cat ldaptest.ldif <<-LDEOF
+	cat > ldaptest.ldif <<-LDEOF
         dn: dc=my-domain,dc=com 
 	objectclass: dcObject 
 	objectclass: organization 
