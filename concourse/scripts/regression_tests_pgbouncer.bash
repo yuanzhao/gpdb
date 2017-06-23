@@ -14,9 +14,14 @@ function gen_env(){
 
 	cd "\${1}/gpdb_src/gpAux"
 	source gpdemo/gpdemo-env.sh
-        echo "host     all         pgbtest         127.0.0.1/28    trust" >> \$MASTER_DATA_DIRECTORY/pg_hba.conf
+        echo "host     all         pgbtest         0.0.0.0/0    trust" >> \$MASTER_DATA_DIRECTORY/pg_hba.conf
+	echo 'host    all          ldaptest         0.0.0.0/0 ldap ldapserver=127.0.0.1 ldapprefix="cn=" ldapsuffix=", dc=my-domain, dc=com"' >> \$MASTER_DATA_DIRECTORY/pg_hba.conf
+	gpstop -arf
         psql postgres -c "create user pgbtest superuser password 'changeme';"
-        psql -U pgbtest -p 6543 -h 127.0.0.1 postgres;
+        PGPASSWORD=changeme psql -U pgbtest -p 6543  postgres -c 'select 1=1';
+        
+	psql postgres -c "create user ldaptest superuser password 'changeme';"
+        PGPASSWORD=changeme psql -U ldaptest -p 6543  postgres -c 'select 1=1';
 
 	EOF
 
@@ -93,6 +98,19 @@ function setup_ldap(){
 	olcDbDirectory:    /usr/local/var/openldap-data
 	olcDbIndex: objectClass eq	
 	LEOF
+
+	cat > ldaptest.ldif <<-LDEOF
+        dn: dc=my-domain,dc=com 
+	objectclass: dcObject 
+	objectclass: organization 
+	o: Example Company 
+	dc: my-domain
+
+	dn: cn=ldaptest,dc=my-domain,dc=com 
+	objectclass: organizationalRole 
+	cn: ldaptest 
+	LDEOF
+
 	mkdir /usr/local/etc/slapd.d
 	/usr/local/sbin/slapadd  -n 0 -F /usr/local/etc/slapd.d/  -l slapd.ldif
 	/usr/local/libexec/slapd -F /usr/local/etc/slapd.d
@@ -101,8 +119,6 @@ function setup_ldap(){
 function run_regression_test() {
 	
 	su - gpadmin -c "bash /home/gpadmin/run_regression_test.sh $(pwd)"
-	su - gpadmin -c "psql postgres -c "create user pgbtest superuser password 'changeme'";"
-	su - gpadmin -c "psql -U pgbtest -p 6543 -h 127.0.0.1 postgres";
 }
 
 function setup_gpadmin_user() {
