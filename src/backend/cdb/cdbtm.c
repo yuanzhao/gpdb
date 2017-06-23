@@ -1525,6 +1525,7 @@ initTM(void)
 				}
 			}
 
+			Assert(!LWLockHeldByMe(shmControlLock));
 			/*
 			 * We are done with the recovery.
 			 */
@@ -2347,19 +2348,18 @@ getNextDistributedXactStatus(TMGALLXACTSTATUS *allDistributedXactStatus, TMGXACT
 }
 
 /*
- * DistributedSnapshotMappedEntry_Compare:
- * A compare function for array of DistributedSnapshotMapEntry
- * for use with qsort.
+ * DistributedSnapshotMappedEntry_Compare: A compare function for
+ * DistributedTransactionId for use with qsort.
  */
 static int
 DistributedSnapshotMappedEntry_Compare(const void *p1, const void *p2)
 {
-	const DistributedSnapshotMapEntry *entry1 = (DistributedSnapshotMapEntry *) p1;
-	const DistributedSnapshotMapEntry *entry2 = (DistributedSnapshotMapEntry *) p2;
+	const DistributedTransactionId distribXid1 = *(DistributedTransactionId *) p1;
+	const DistributedTransactionId distribXid2 = *(DistributedTransactionId *) p2;
 
-	if (entry1->distribXid == entry2->distribXid)
+	if (distribXid1 == distribXid2)
 		return 0;
-	else if (entry1->distribXid > entry2->distribXid)
+	else if (distribXid1 > distribXid2)
 		return 1;
 	else
 		return -1;
@@ -2379,8 +2379,7 @@ createDtxSnapshot(
 	DistributedTransactionId	inProgressXid;
 	DistributedSnapshotId		distribSnapshotId;
 	DistributedTransactionId	globalXminDistributedSnapshots;
-
-	DistributedSnapshotMapEntry 	*inProgressEntryArray;
+	DistributedSnapshot         *ds;
 
 	if (currentGxact == NULL)
 	{
@@ -2401,7 +2400,7 @@ createDtxSnapshot(
 	 */
 	globalXminDistributedSnapshots = xmax;
 	count = 0;
-	inProgressEntryArray = distribSnapshotWithLocalMapping->inProgressEntryArray;
+	ds = &distribSnapshotWithLocalMapping->ds;
 
 	getTmLock();
 
@@ -2488,27 +2487,16 @@ createDtxSnapshot(
 		if (gxact_candidate == currentGxact)
 			continue;
 
-		if (count >= distribSnapshotWithLocalMapping->header.maxCount)
+		if (count >= ds->maxCount)
 			elog(ERROR, "Too many distributed transactions for snapshot");
 
-		inProgressEntryArray[count].distribXid = inProgressXid;
-
-		/*
-		 * This is used only for optimization during
-		 * DistributedSnapshotWithLocalMapping_CommittedTest(). So, if
-		 * localXid = InvalidTransactionId it gets populatd correctly based on
-		 * consulation with distributed log. Since we are lazily allocating
-		 * local transactionID, gxact_candidate can't provide correct value
-		 * here.
-		 */
-		inProgressEntryArray[count].localXid = InvalidTransactionId;
+		ds->inProgressXidArray[count] = inProgressXid;
 
 		count++;
 
 		elog(DTM_DEBUG5,
-			 "createDtxSnapshot added inProgressXid = %u (and local xid = %u) to distributed snapshot",
-			 inProgressEntryArray[count].distribXid,
-			 inProgressEntryArray[count].localXid);
+			 "createDtxSnapshot added inProgressDistributedXid = %u to snapshot",
+			 ds->inProgressXidArray[count]);
 	}
 
 	distribSnapshotId = (*shmNextSnapshotId)++;
@@ -2522,25 +2510,25 @@ createDtxSnapshot(
 		globalXminDistributedSnapshots = xmin;
 
 	/*
-	 * Sort the entry {distribXid, localXid}
-	 * to support the QEs doing culls on their DisribToLocalXact sorted lists.
+	 * Sort the entry {distribXid} to support the QEs doing culls on their
+	 * DisribToLocalXact sorted lists.
 	 */
 	qsort(
-		inProgressEntryArray,
-	  	count,
-	  	sizeof(DistributedSnapshotMapEntry),
-	    DistributedSnapshotMappedEntry_Compare);
+		ds->inProgressXidArray,
+		count,
+		sizeof(DistributedTransactionId),
+		DistributedSnapshotMappedEntry_Compare);
 
 	/*
 	 * Copy the information we just captured under lock and then sorted into
 	 * the distributed snapshot.
 	 */
-	distribSnapshotWithLocalMapping->header.distribTransactionTimeStamp = *shmDistribTimeStamp;
-	distribSnapshotWithLocalMapping->header.xminAllDistributedSnapshots = globalXminDistributedSnapshots;
-	distribSnapshotWithLocalMapping->header.distribSnapshotId = distribSnapshotId;
-	distribSnapshotWithLocalMapping->header.xmin = xmin;
-	distribSnapshotWithLocalMapping->header.xmax = xmax;
-	distribSnapshotWithLocalMapping->header.count = count;
+	ds->distribTransactionTimeStamp = *shmDistribTimeStamp;
+	ds->xminAllDistributedSnapshots = globalXminDistributedSnapshots;
+	ds->distribSnapshotId = distribSnapshotId;
+	ds->xmin = xmin;
+	ds->xmax = xmax;
+	ds->count = count;
 
 	if (xmin < currentGxact->xminDistributedSnapshot)
 		currentGxact->xminDistributedSnapshot = xmin;
@@ -2553,6 +2541,22 @@ createDtxSnapshot(
 		 distribSnapshotId,
 		 currentGxact->gxid,
 		 DtxContextToString(DistributedTransactionContext));
+
+	/*
+	 * At snapshot creation time, local xid cache is empty. Gets populated as
+	 * reverse mapping takes place during visibility checks using this
+	 * snapshot.
+	 */
+	distribSnapshotWithLocalMapping->currentLocalXidsCount = 0;
+	distribSnapshotWithLocalMapping->minCachedLocalXid = InvalidTransactionId;
+	distribSnapshotWithLocalMapping->maxCachedLocalXid = InvalidTransactionId;
+
+	Assert(distribSnapshotWithLocalMapping->maxLocalXidsCount != 0);
+	Assert(distribSnapshotWithLocalMapping->inProgressMappedLocalXids != NULL);
+
+	memset(distribSnapshotWithLocalMapping->inProgressMappedLocalXids,
+		   InvalidTransactionId,
+		   sizeof(TransactionId) * distribSnapshotWithLocalMapping->maxLocalXidsCount);
 
 	return true;
 }
@@ -3544,22 +3548,28 @@ setupQEDtxContext (DtxContextInfo *dtxContextInfo)
 				 "setupQEDtxContext inputs (part 2a): distributedXid = %u, "
 				 "distributedSnapshotData (xmin = %u, xmax = %u, xcnt = %u), distributedCommandId = %d",
 				 dtxContextInfo->distributedXid,
-				 distributedSnapshot->header.xmin, distributedSnapshot->header.xmax,
-				 distributedSnapshot->header.count,
+				 distributedSnapshot->xmin, distributedSnapshot->xmax,
+				 distributedSnapshot->count,
 				 dtxContextInfo->curcid);
 		}
 		if (isSharedLocalSnapshotSlotPresent)
 		{
-			elog(DTM_DEBUG5,
-				 "setupQEDtxContext inputs (part 2b):  shared local snapshot xid = %u "
-				 "(xmin: %u xmax: %u xcnt: %u) curcid: %d, QDxid = %u/%u, QDcid = %u",
-				 SharedLocalSnapshotSlot->xid,
-				 SharedLocalSnapshotSlot->snapshot.xmin,
-				 SharedLocalSnapshotSlot->snapshot.xmax,
-	 			 SharedLocalSnapshotSlot->snapshot.xcnt,
-				 SharedLocalSnapshotSlot->snapshot.curcid,
-				 SharedLocalSnapshotSlot->QDxid, SharedLocalSnapshotSlot->segmateSync,
-				 SharedLocalSnapshotSlot->QDcid);
+			if (DTM_DEBUG5 >= log_min_messages)
+			{
+				LWLockAcquire(SharedLocalSnapshotSlot->slotLock, LW_SHARED);
+				elog(DTM_DEBUG5,
+					 "setupQEDtxContext inputs (part 2b):  shared local snapshot xid = %u "
+					 "(xmin: %u xmax: %u xcnt: %u) curcid: %d, QDxid = %u/%u, QDcid = %u",
+					 SharedLocalSnapshotSlot->xid,
+					 SharedLocalSnapshotSlot->snapshot.xmin,
+					 SharedLocalSnapshotSlot->snapshot.xmax,
+					 SharedLocalSnapshotSlot->snapshot.xcnt,
+					 SharedLocalSnapshotSlot->snapshot.curcid,
+					 SharedLocalSnapshotSlot->QDxid,
+					 SharedLocalSnapshotSlot->segmateSync,
+					 SharedLocalSnapshotSlot->QDcid);
+				LWLockRelease(SharedLocalSnapshotSlot->slotLock);
+			}
 		}
 	}
 
@@ -3746,7 +3756,7 @@ setupQEDtxContext (DtxContextInfo *dtxContextInfo)
 	if (haveDistributedSnapshot)
 	{
 		elog((Debug_print_snapshot_dtm ? LOG : DEBUG5), "[Distributed Snapshot #%u] *Set QE* currcid = %d (gxid = %u, '%s')",
-			 dtxContextInfo->distributedSnapshot.header.distribSnapshotId,
+			 dtxContextInfo->distributedSnapshot.distribSnapshotId,
 			 dtxContextInfo->curcid,
 			 getDistributedTransactionId(),
 			 DtxContextToString(DistributedTransactionContext));

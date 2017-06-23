@@ -568,6 +568,7 @@ int64  segfileMaxRowThreshold(void)
 static bool
 usedByConcurrentTransaction(AOSegfileStatus *segfilestat, int segno)
 {
+	DistributedSnapshot *ds;
 	DistributedTransactionId latestWriteXid =
 		segfilestat->latestWriteXid;
 
@@ -639,32 +640,33 @@ usedByConcurrentTransaction(AOSegfileStatus *segfilestat, int segno)
 		return false;
 	}
 
+	ds = &snapshot->distribSnapshotWithLocalMapping.ds;
+
 	/* If latestWriterXid is invisible to me, return true. */
-	if (latestWriteXid >= snapshot->distribSnapshotWithLocalMapping.header.xmax)
+	if (latestWriteXid >= ds->xmax)
 	{
 		ereportif(Debug_appendonly_print_segfile_choice, LOG,
 			(errmsg("usedByConcurrentTransaction: latestWriterXid %x of segno %d is >= distributed snapshot xmax %u, so it is considered concurrent",
 								 latestWriteXid,
 								 segno,
-								 snapshot->distribSnapshotWithLocalMapping.header.xmax)));
+								 ds->xmax)));
 		return true;
 	}
 
 	/*
 	 * If latestWriteXid is in in-progress, return true.
 	 */
-	int32 inProgressCount = snapshot->distribSnapshotWithLocalMapping.header.count;
+	int32 inProgressCount = ds->count;
 	
 	for (int inProgressNo = 0; inProgressNo < inProgressCount; inProgressNo++)
 	{
-		if (latestWriteXid ==
-			snapshot->distribSnapshotWithLocalMapping.inProgressEntryArray[inProgressNo].distribXid)
+		if (latestWriteXid == ds->inProgressXidArray[inProgressNo])
 		{
 			ereportif(Debug_appendonly_print_segfile_choice, LOG,
 				(errmsg("usedByConcurrentTransaction: latestWriterXid %x of segno %d is equal to distributed snapshot in-flight %u, so it is considered concurrent",
 									 latestWriteXid,
 									 segno,
-									 snapshot->distribSnapshotWithLocalMapping.inProgressEntryArray[inProgressNo].distribXid)));
+									 ds->inProgressXidArray[inProgressNo])));
 			return true;
 		}
 	}
@@ -857,8 +859,9 @@ SetSegnoForCompaction(Relation rel,
 			(errmsg("segment file %i for append-only relation \"%s\" (%d): state %d",
 					i, RelationGetRelationName(rel), RelationGetRelid(rel), segfilestat->state)));
 
-		if (segfilestat->state == AWAITING_DROP_READY && 
-				!usedByConcurrentTransaction(segfilestat, i))
+		if ((segfilestat->state == AWAITING_DROP_READY ||
+			segfilestat->state == COMPACTED_AWAITING_DROP) &&
+			!usedByConcurrentTransaction(segfilestat, i))
 		{
 			ereportif(Debug_appendonly_print_segfile_choice, LOG,
 				(errmsg("Found segment awaiting drop for append-only relation \"%s\" (%d)",
@@ -1865,14 +1868,7 @@ AtEOXact_AppendOnly_StateTransition(AORelHashEntry aoentry, int segno,
 	oldstate = segfilestat->state;
 	if (segfilestat->state == INSERT_USE)
 	{
-		if (!segfilestat->aborted)
-		{
-			segfilestat->state = AVAILABLE;
-		}
-		else
-		{
-			segfilestat->state = AVAILABLE;
-		}
+		segfilestat->state = AVAILABLE;
 	}
 	else if (segfilestat->state == DROP_USE)
 	{

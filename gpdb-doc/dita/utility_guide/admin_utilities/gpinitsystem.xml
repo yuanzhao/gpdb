@@ -14,14 +14,12 @@
             [<b>-B</b> <varname>parallel_processes</varname>] 
             [<b>-p</b> <varname>postgresql_conf_param_file</varname>]
             [<b>-s</b> <varname>standby_master_host</varname>]
-            [<b>--max_connections</b>=<varname>number</varname>] [<b>--shared_buffers</b> <varname>=size</varname>]
+            [<b>--max_connections</b>=<varname>number</varname>] [<b>--shared_buffers</b>=<varname>size</varname>]
             [<b>--locale</b>=<varname>locale</varname>] [<b>--lc-collate</b>=<varname>locale</varname>] 
             [<b>--lc-ctype</b>=<varname>locale</varname>] [<b>--lc-messages</b>=<varname>locale</varname>] 
             [<b>--lc-monetary</b>=<varname>locale</varname>] [<b>--lc-numeric</b>=<varname>locale</varname>] 
             [<b>--lc-time</b>=<varname>locale</varname>] [<b>--su_password</b>=<varname>password</varname>] 
             [<b>-S</b>] [<b>-a</b>] [<b>-q</b>] [<b>-l</b> <varname>logfile_directory</varname>] [<b>-D</b>]
-
-<b>gpinitsystem</b> <b>-?</b>
 
 <b>gpinitsystem</b> <b>-v</b></codeblock>
         </section>
@@ -64,7 +62,7 @@
             <title>Options</title>
             <parml>
                 <plentry>
-                    <pt>-a (do not prompt)</pt>
+                    <pt>-a</pt>
                     <pd>Do not prompt the user for confirmation.</pd>
                 </plentry>
                 <plentry>
@@ -80,7 +78,7 @@
                             format="dita"/> for a description of this file.</pd>
                 </plentry>
                 <plentry>
-                    <pt>-D (debug)</pt>
+                    <pt>-D</pt>
                     <pd>Sets log output level to debug.</pd>
                 </plentry>
                 <plentry>
@@ -168,7 +166,7 @@
                             <codeph>gpconfig</codeph> utility.</pd>
                 </plentry>
                 <plentry>
-                    <pt>-q (no screen output)</pt>
+                    <pt>-q</pt>
                     <pd>Run in quiet mode. Command output is not displayed on the screen, but is
                         still written to the log file.</pd>
                 </plentry>
@@ -200,7 +198,7 @@
                         </ul></pd>
                 </plentry>
                 <plentry>
-                    <pt>-S (spread mirror configuration)</pt>
+                    <pt>-S</pt>
                     <pd>If mirroring parameters are specified, spreads the mirror segments across
                         the available hosts. The default is to group the set of mirror segments
                         together on an alternate host from their primary segment set. Mirror
@@ -209,11 +207,11 @@
                         than the number of segment instances.</pd>
                 </plentry>
                 <plentry>
-                    <pt>-v (show utility version)</pt>
+                    <pt>-v | --version</pt>
                     <pd>Displays the version of this utility.</pd>
                 </plentry>
                 <plentry>
-                    <pt>-? (help)</pt>
+                    <pt>--help</pt>
                     <pd>Displays the online help.</pd>
                 </plentry>
             </parml>

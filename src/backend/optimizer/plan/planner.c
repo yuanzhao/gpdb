@@ -9,7 +9,7 @@
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/plan/planner.c,v 1.234 2008/07/10 02:14:03 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/optimizer/plan/planner.c,v 1.244 2008/10/04 21:56:53 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -485,7 +485,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	config = DefaultPlannerConfig();
 
 	/* primary planning entry point (may recurse for subqueries) */
-	top_plan = subquery_planner(glob, parse, NULL, tuple_fraction, &root, config);
+	top_plan = subquery_planner(glob, parse, NULL, false, tuple_fraction, &root, config);
 
 	/*
 	 * If creating a plan for a scrollable cursor, make sure it can run
@@ -532,6 +532,10 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	/* walk plan and remove unused initplans and their params */
 	remove_unused_initplans(top_plan, root);
 
+	/* walk subplans and fixup subplan node referring to same plan_id */
+	SubPlanWalkerContext subplan_context;
+	fixup_subplans(top_plan, root, &subplan_context);
+
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
 		top_plan = cdbparallelize(root, top_plan, parse,
@@ -554,6 +558,16 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		 */
 		top_plan = apply_shareinput_xslice(top_plan, glob);
 	}
+
+	/*
+	 * Remove unused subplans.
+	 * Executor initializes state for subplans even they are unused.
+	 * When the generated subplan is not used and has motion inside,
+	 * causing motionID not being assigned, which will break sanity
+	 * check when executor tries to initialize subplan state.
+	 */
+	remove_unused_subplans(root, &subplan_context);
+	bms_free(subplan_context.bms_subplans);
 
 	top_plan = zap_trivial_result(root, top_plan);
 
@@ -657,6 +671,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 Plan *
 subquery_planner(PlannerGlobal *glob, Query *parse,
 				 PlannerInfo *parent_root,
+				 bool hasRecursion,
 				 double tuple_fraction,
 				 PlannerInfo **subroot,
 				 PlannerConfig *config)
@@ -675,6 +690,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->parent_root = parent_root;
 	root->planner_cxt = CurrentMemoryContext;
 	root->init_plans = NIL;
+	root->cte_plan_ids = NIL;
 	root->eq_classes = NIL;
 	root->init_plans = NIL;
 
@@ -695,6 +711,27 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 		/* Choose a segdb to which our singleton gangs should be dispatched. */
 		gp_singleton_segindex = gp_session_id % root->config->cdbpath_segments;
 	}
+
+	root->hasRecursion = hasRecursion;
+	if (hasRecursion)
+		root->wt_param_id = SS_assign_worktable_param(root);
+	else
+		root->wt_param_id = -1;
+	root->non_recursive_plan = NULL;
+
+	/*
+	 * If there is a WITH list, process each WITH query and build an
+	 * initplan SubPlan structure for it.
+	 *
+	 * Unlike upstrem, we do not use initplan + CteScan, so SS_process_ctes
+	 * will generate unused initplans. Commenting out the following two
+	 * lines.
+	 */
+
+	/*
+	if (parse->cteList)
+		SS_process_ctes(root);
+	 */
 
 	/*
 	 * Ensure that jointree has been normalized. See
@@ -1458,7 +1495,9 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 
 		/*
 		 * Construct the plan for set operations.  The result will not need
-		 * any work except perhaps a top-level sort and/or LIMIT.
+		 * any work except perhaps a top-level sort and/or LIMIT.  Note that
+		 * any special work for recursive unions is the responsibility of
+		 * plan_set_operations.
 		 */
 		result_plan = plan_set_operations(root, tuple_fraction,
 										  &set_sortclauses);
@@ -1542,11 +1581,16 @@ grouping_planner(PlannerInfo *root, double tuple_fraction)
 		Path	   *sorted_path;
 		long		numGroups = 0;
 		AggClauseCounts agg_counts;
-		int			numGroupCols;
+		int			numGroupCols = list_length(parse->groupClause);
 		bool		use_hashed_grouping = false;
 		bool		grpext = false;
 		bool		has_within = false;
 		CanonicalGroupingSets *canonical_grpsets;
+
+		MemSet(&agg_counts, 0, sizeof(AggClauseCounts));
+
+		/* A recursive query should always have setOperations */
+		Assert(!root->hasRecursion);
 
 		/* Preprocess targetlist */
 		tlist = preprocess_targetlist(root, tlist);

@@ -9,7 +9,7 @@
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/path/joinpath.c,v 1.115.2.1 2008/03/24 21:53:12 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/optimizer/path/joinpath.c,v 1.118 2008/10/04 21:56:53 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -400,31 +400,32 @@ match_unsorted_outer(PlannerInfo *root,
 			break;
 	}
 
-    if (!root->config->enable_nestloop
-    		&& !root->config->mpp_trying_fallback_plan)
-        nestjoinOK = false;
+	if (!root->config->enable_nestloop
+			&& !root->config->mpp_trying_fallback_plan)
+		nestjoinOK = false;
 
-    /*
-     * For NJ there may be some special inner paths we should try.
-     */
-    if (nestjoinOK)
+	if (nestjoinOK)
 	{
-        bool    materialize_inner = true;
+		bool    materialize_inner = true;
 
-        /*
-         * Consider materializing the cheapest inner path unless it is
-         * cheaply rescannable.
-         */
+		/*
+		 * Consider materializing the cheapest inner path unless it is
+		 * cheaply rescannable.
+		 *
+		 * Unlike upstream we choose to materialize pretty much
+		 * everything on the inner side. The original change cited
+		 * performance as the reason.
+		 */
 		if (IsA(inner_cheapest_total, UniquePath))
-        {
-            UniquePath *unique_path = (UniquePath *)inner_cheapest_total;
+		{
+			UniquePath *unique_path = (UniquePath *)inner_cheapest_total;
 
-            if (unique_path->umethod == UNIQUE_PATH_SORT ||
-                unique_path->umethod == UNIQUE_PATH_HASH)
-                materialize_inner = false;
-        }
+			if (unique_path->umethod == UNIQUE_PATH_SORT ||
+				unique_path->umethod == UNIQUE_PATH_HASH)
+				materialize_inner = false;
+		}
 
-        if (materialize_inner)
+		if (materialize_inner)
 			matpath = (Path *)create_material_path(root, innerrel, inner_cheapest_total);
 
 		/*
@@ -559,6 +560,10 @@ match_unsorted_outer(PlannerInfo *root,
 				continue;
 		}
 		if (useallclauses && list_length(mergeclauses) != list_length(mergeclause_list))
+			continue;
+
+		/* The merge join executor code doesn't support LASJ_NOTIN */
+		if (jointype == JOIN_LASJ_NOTIN)
 			continue;
 
 		/* Compute the required ordering of the inner path */
@@ -755,6 +760,17 @@ hashclauses_for_join(List *restrictlist,
 		if (!restrictinfo->can_join ||
 			restrictinfo->hashjoinoperator == InvalidOid)
 			continue;			/* not hashjoinable */
+
+		/*
+		 * A qual like "(a = b) IS NOT FALSE" is treated as hashable in
+		 * check_hashjoinable(), for the benefit of LASJ joins. It will be
+		 * hashed like "a = b", but the special LASJ handlng in the hash join
+		 * executor node will ensure that NULLs are treated correctly. For
+		 * other kinds of joins, we cannot use "(a = b) IS NOT FALSE" as a
+		 * hash qual.
+		 */
+		if (jointype != JOIN_LASJ_NOTIN && IsA(restrictinfo->clause, BooleanTest))
+			continue;
 
 		/*
 		 * If processing an outer join, only use its own join clauses for

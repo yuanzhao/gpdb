@@ -42,6 +42,7 @@
 #include "storage/procarray.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
+#include "utils/resgroup.h"
 #include "utils/resscheduler.h"
 #include "utils/syscache.h"
 

@@ -22,6 +22,8 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/faultinjector.h"
+#include "utils/resgroup.h"
+#include "utils/session_state.h"
 #include "miscadmin.h"
 
 #include "cdb/cdbdisp.h"
@@ -591,6 +593,10 @@ cdbdisp_buildPlanQueryParms(struct QueryDesc *queryDesc,
 	splan = serializeNode((Node *) queryDesc->plannedstmt, &splan_len, &splan_len_uncompressed);
 
 	uint64 plan_size_in_kb = ((uint64) splan_len_uncompressed) / (uint64) 1024;
+
+	elog(((gp_log_gang >= GPVARS_VERBOSITY_TERSE) ? LOG : DEBUG1),
+		 "Query plan size to dispatch: " UINT64_FORMAT "KB", plan_size_in_kb);
+
 	if (0 < gp_max_plan_size && plan_size_in_kb > gp_max_plan_size)
 	{
 		ereport(ERROR,
@@ -975,6 +981,7 @@ buildGpQueryString(struct CdbDispatcherState *ds,
 	Oid	sessionUserId = GetSessionUserId();
 	Oid	outerUserId = GetOuterUserId();
 	Oid	currentUserId = GetUserId();
+	Oid	currentResourceGroupId = MySessionState->resGroupId;
 	bool sessionUserIsSuper = superuser_arg(GetSessionUserId());
 	bool outerUserIsSuper = superuser_arg(GetSessionUserId());
 
@@ -992,6 +999,7 @@ buildGpQueryString(struct CdbDispatcherState *ds,
 		sizeof(sessionUserId) + 1 /* sessionUserIsSuper */	+
 		sizeof(outerUserId) + 1 /* outerUserIsSuper */	+
 		sizeof(currentUserId) +
+		sizeof(currentResourceGroupId) +
 		sizeof(rootIdx) +
 		sizeof(n32) * 2 /* currentStatementStartTimestamp */  +
 		sizeof(command_len) +
@@ -1054,6 +1062,10 @@ buildGpQueryString(struct CdbDispatcherState *ds,
 	tmp = htonl(currentUserId);
 	memcpy(pos, &tmp, sizeof(currentUserId));
 	pos += sizeof(currentUserId);
+
+	tmp = htonl(currentResourceGroupId);
+	memcpy(pos, &tmp, sizeof(currentResourceGroupId));
+	pos += sizeof(currentResourceGroupId);
 
 	tmp = htonl(rootIdx);
 	memcpy(pos, &tmp, sizeof(rootIdx));

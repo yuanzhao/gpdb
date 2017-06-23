@@ -15,7 +15,7 @@
 #   hitting max_connections limit on segments.
 #
 
-test: variadic_parameters default_parameters function_extensions spi
+test: gp_metadata variadic_parameters default_parameters function_extensions spi gp_xml pgoptions
 
 test: leastsquares opr_sanity_gp decode_expr bitmapscan bitmapscan_ao case_gp limit_gp notin percentile join_gp union_gp gpcopy gp_create_table
 test: filter gpctas gpdist matrix toast sublink table_functions olap_setup complex opclass_ddl information_schema guc_env_var gp_explain
@@ -67,18 +67,13 @@ test: sreh
 # ERROR:  parameter "gp_interconnect_type" cannot be set after connection start
 
 ignore: gp_portal_error
-test: external_table external_table_create_privs column_compression eagerfree mapred gpdtm_plpgsql alter_table_aocs alter_table_aocs2 alter_distribution_policy ic aoco_privileges aocs
-test: alter_table_gp alter_table_ao ao_create_alter_valid_table subtransaction_limit oid_consistency udf_exception_blocks
+test: external_table external_table_create_privs column_compression eagerfree gpdtm_plpgsql alter_table_aocs alter_table_aocs2 alter_distribution_policy ic aoco_privileges aocs
+test: alter_table_gp alter_table_ao ao_create_alter_valid_table subtransaction_visibility oid_consistency udf_exception_blocks
 ignore: icudp_full
 
 test: resource_queue
 test: resource_queue_function
 test: wrkloadadmin
-
-# set gp_resource_manager and restart cluster to enable resource group
-test: resource_group_setup
-test: resource_group
-test: resource_group_cleanup
 
 # gp_toolkit performs a vacuum and checks that it truncated the relation. That
 # might not happen if other backends are holding transactions open, preventing
@@ -103,12 +98,12 @@ test: direct_dispatch bfv_dd bfv_dd_multicolumn bfv_dd_types
 # (https://git.postgresql.org/gitweb/?p=postgresql.git;a=commitdiff;h=e5550d5fec66aa74caad1f79b79826ec64898688)
 test: catalog
 
-test: bfv_catalog bfv_index bfv_olap bfv_aggregate bfv_partition DML_over_joins gp_optimizer bfv_statistic
+test: bfv_catalog bfv_index bfv_olap bfv_aggregate bfv_partition DML_over_joins gporca bfv_statistic
  
 test: aggregate_with_groupingsets 
 
 test: nested_case_null sort bb_mpph
-test: bb_memory_quota
+test: bb_memory_quota memconsumption
 
 # NOTE: The bfv_temp test assumes that there are no temporary tables in
 # other sessions. Therefore the other tests in this group mustn't create

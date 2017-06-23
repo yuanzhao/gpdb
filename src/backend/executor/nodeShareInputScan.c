@@ -223,7 +223,7 @@ ShareInputNext(ShareInputScanState *node)
 		if(!gotOK)
 			return NULL;
 
-		Gpmon_M_Incr_Rows_Out(GpmonPktFromShareInputState(node)); 
+		Gpmon_Incr_Rows_Out(GpmonPktFromShareInputState(node));
 		CheckSendPlanStateGpmonPkt(&node->ss.ps);
 
 		SIMPLE_FAULT_INJECTOR(ExecShareInputNext);
@@ -375,75 +375,6 @@ void ExecEndShareInputScan(ShareInputScanState *node)
 }
 
 /* ------------------------------------------------------------------
- * 	ExecShareInputMarkPosScan
- * ------------------------------------------------------------------
- */
-void ExecShareInputScanMarkPos(ShareInputScanState *node)
-{
-	ShareInputScan *sisc = (ShareInputScan *) node->ss.ps.plan;
-	Assert(NULL != node->ts_state);
-	Assert(NULL != node->ts_state->matstore || NULL != node->ts_state->sortstore || NULL != node->ts_state->sortstore_mk);
-
-	if(sisc->share_type == SHARE_MATERIAL || sisc->share_type == SHARE_MATERIAL_XSLICE)
-	{
-		Assert(node->ts_pos);
-
-		if(node->ts_markpos == NULL)
-		{
-			node->ts_markpos = palloc(sizeof(NTupleStorePos));
-		}
-
-		ntuplestore_acc_tell((NTupleStoreAccessor *)node->ts_pos, (NTupleStorePos *) node->ts_markpos);
-	}
-	else if(sisc->share_type == SHARE_SORT || sisc->share_type == SHARE_SORT_XSLICE) 
-	{
-		if(gp_enable_mk_sort)
-		{
-			tuplesort_markpos_pos_mk(node->ts_state->sortstore_mk, (TuplesortPos_mk *) node->ts_pos);
-		}
-		else
-		{
-			tuplesort_markpos_pos(node->ts_state->sortstore, (TuplesortPos *) node->ts_pos);
-		}
-	}
-	else
-		Assert(!"ExecShareInputScanMarkPos: invalid share type");
-}
-
-/* ------------------------------------------------------------------
- * 	ExecShareInputRestrPosScan
- * ------------------------------------------------------------------
- */
-void ExecShareInputScanRestrPos(ShareInputScanState *node)
-{
-	ShareInputScan *sisc = (ShareInputScan *) node->ss.ps.plan;
-	Assert(NULL != node->ts_state);
-	Assert(NULL != node->ts_state->matstore || NULL != node->ts_state->sortstore || NULL != node->ts_state->sortstore_mk);
-
-	if(sisc->share_type == SHARE_MATERIAL || sisc->share_type == SHARE_MATERIAL_XSLICE)
-	{
-		Assert(node->ts_pos && node->ts_markpos);
-		ntuplestore_acc_seek((NTupleStoreAccessor *) node->ts_pos, (NTupleStorePos *) node->ts_markpos);
-	}
-	else if(sisc->share_type == SHARE_SORT || sisc->share_type == SHARE_SORT_XSLICE) 
-	{
-		if(gp_enable_mk_sort)
-		{
-			tuplesort_restorepos_pos_mk(node->ts_state->sortstore_mk, (TuplesortPos_mk *) node->ts_pos);
-		}
-		else
-		{
-			tuplesort_restorepos_pos(node->ts_state->sortstore, (TuplesortPos *) node->ts_pos);
-		}
-	}
-	else
-		Assert(!"ExecShareInputScanRestrPos: invalid share type");
-
-	Gpmon_M_Incr(GpmonPktFromShareInputState(node), GPMON_SHAREINPUT_RESTOREPOS); 
-	CheckSendPlanStateGpmonPkt(&node->ss.ps);
-}
-
-/* ------------------------------------------------------------------
  * 	ExecShareInputScanReScan
  * ------------------------------------------------------------------
  */
@@ -483,7 +414,6 @@ void ExecShareInputScanReScan(ShareInputScanState *node, ExprContext *exprCtxt)
 		Assert(!"ExecShareInputScanReScan: invalid share type ");
 	}
 
-	Gpmon_M_Incr(GpmonPktFromShareInputState(node), GPMON_SHAREINPUT_RESCAN); 
 	CheckSendPlanStateGpmonPkt(&node->ss.ps);
 }
 
@@ -1001,12 +931,7 @@ initGpmonPktForShareInputScan(Plan *planNode, gpmon_packet_t *gpmon_pkt, EState 
 {
 	Assert(planNode != NULL && gpmon_pkt != NULL && IsA(planNode, ShareInputScan));
 
-	{
-		Assert(GPMON_SHAREINPUT_TOTAL <= (int)GPMON_QEXEC_M_COUNT);
-		InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate, PMNT_SharedScan,
-							 (int64)planNode->plan_rows, 
-							 NULL);
-	}
+	InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);
 }
 
 /*

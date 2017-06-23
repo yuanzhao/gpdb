@@ -13,6 +13,7 @@
 #include "postgres.h"
 
 #include "funcapi.h"
+#include "gp-libpq-fe.h"
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/xact.h"
@@ -21,6 +22,7 @@
 #include "catalog/pg_authid.h"
 #include "catalog/pg_resgroup.h"
 #include "cdb/cdbdisp_query.h"
+#include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbvars.h"
 #include "commands/comment.h"
 #include "commands/defrem.h"
@@ -30,6 +32,7 @@
 #include "utils/datetime.h"
 #include "utils/fmgroids.h"
 #include "utils/resgroup.h"
+#include "utils/resgroup-ops.h"
 #include "utils/resource_manager.h"
 #include "utils/syscache.h"
 
@@ -48,17 +51,131 @@ typedef struct ResourceGroupOptions
 	float redzoneLimit;
 } ResourceGroupOptions;
 
+typedef struct ResourceGroupStatusRow
+{
+	Datum oid;
+
+	double cpuAvgUsage;
+	StringInfo memoryUsage;
+} ResourceGroupStatusRow;
+
+typedef struct ResourceGroupStatusContext
+{
+	ResGroupStatType type;
+
+	int nrows;
+	ResourceGroupStatusRow rows[1];
+} ResourceGroupStatusContext;
+
+/*
+ * The context to pass to callback in ALTER resource group
+ */
+typedef struct {
+	Oid		groupid;
+	int		limittype;
+	union {
+		int		i;
+		float	f;
+	}	value;
+	union {
+		int		i;
+		float	f;
+	}	proposed;
+} ResourceGroupAlterCallbackContext;
+
+/*
+ * The form of callbacks for resource group
+ */
+typedef void (*ResourceGroupCallback) (bool isCommit, void *arg);
+
+/*
+ * List of add-on callbacks for resource group related operations
+ * The list is maintained as circular doubly linked.
+ */
+typedef struct ResourceGroupCallbackItem
+{
+	struct ResourceGroupCallbackItem *next;
+	struct ResourceGroupCallbackItem *prev;
+	ResourceGroupCallback callback;
+	void *arg;
+} ResourceGroupCallbackItem;
+
+static ResourceGroupCallbackItem ResourceGroup_callbacks_head =
+{
+	&ResourceGroup_callbacks_head, &ResourceGroup_callbacks_head, NULL, NULL
+};
+
+static ResourceGroupCallbackItem *ResourceGroup_callbacks = &ResourceGroup_callbacks_head;
+
+static float str2Float(const char *str, const char *prop);
 static float text2Float(const text *text, const char *prop);
-static int text2int(const text *value);
-static void updateResgroupCapability(Oid groupid, ResourceGroupOptions *options);
-static void deleteResgroupCapability(Oid groupid);
 static int getResgroupOptionType(const char* defname);
 static void parseStmtOptions(CreateResourceGroupStmt *stmt, ResourceGroupOptions *options);
 static void validateCapabilities(Relation rel, Oid groupid, ResourceGroupOptions *options);
-static text getCapabilityForGroup(int groupId, int type);
-static void insertTupleIntoResCapability(Relation rel, Oid groupid, uint16 type, char *value);
-static void createResGroupAbortCallback(ResourceReleasePhase phase, bool isCommit, bool isTopLevel, void *arg);
-static void dropResGroupAbortCallback(ResourceReleasePhase phase, bool isCommit, bool isTopLevel, void *arg);
+static void getResgroupCapabilityEntry(int groupId, int type, char **value, char **proposed);
+static void insertResgroupCapabilityEntry(Relation rel, Oid groupid, uint16 type, char *value);
+static void updateResgroupCapabilityEntry(Oid groupid, uint16 type, char *value, char *proposed);
+static void insertResgroupCapabilities(Oid groupid, ResourceGroupOptions *options);
+static void deleteResgroupCapabilities(Oid groupid);
+static void createResGroupAbortCallback(bool isCommit, void *arg);
+static void dropResGroupAbortCallback(bool isCommit, void *arg);
+static void alterResGroupCommitCallback(bool isCommit, void *arg);
+static ResGroupStatType propNameToType(const char *name);
+static void getCpuUsage(ResourceGroupStatusContext *ctx);
+static void getMemoryUsage(ResourceGroupStatusContext *ctx, const char *prop);
+static void registerResourceGroupCallback(ResourceGroupCallback callback, void *arg);
+
+/*
+ * Register callback functions for resource group related operations.
+ *
+ * At transaction end, the callback occurs post-commit or post-abort, so the
+ * callback functions can only do noncritical cleanup.
+ */
+static void
+registerResourceGroupCallback(ResourceGroupCallback callback, void *arg)
+{
+	ResourceGroupCallbackItem *item;
+
+	item = (ResourceGroupCallbackItem *)
+		MemoryContextAlloc(TopMemoryContext,
+						   sizeof(ResourceGroupCallbackItem));
+	item->callback = callback;
+	item->arg = arg;
+
+	item->prev = ResourceGroup_callbacks->prev;
+	item->next = ResourceGroup_callbacks;
+	item->prev->next = item;
+	item->next->prev = item;
+}
+
+/*
+ * Call resource group related callback functions at transaction end.
+ *
+ * On COMMIT, the callback functions are processed as FIFO.
+ * On ABORT,  the callback functions are processed as LIFO.
+ *
+ * Note the callback functions would be removed as being processed.
+ */
+void
+AtEOXact_ResGroup(bool isCommit)
+{
+	ResourceGroupCallbackItem *current =
+		isCommit ? ResourceGroup_callbacks->next : ResourceGroup_callbacks->prev;
+	while (current != ResourceGroup_callbacks)
+	{
+		ResourceGroupCallbackItem *tmp = isCommit? current->next : current->prev;
+
+		ResourceGroupCallback callback = current->callback;
+		void *arg =  current->arg;
+
+		current->prev->next = current->next;
+		current->next->prev = current->prev;
+		pfree(current);
+		current = tmp;
+
+		callback(isCommit, arg);
+	}
+}
 
 /*
  * CREATE RESOURCE GROUP
@@ -82,6 +199,12 @@ CreateResourceGroup(CreateResourceGroupStmt *stmt)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be superuser to create resource groups")));
+
+	/* Subtransaction is not supported for resource group related operations */
+	if (IsSubTransaction())
+		ereport(ERROR,
+				(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
+				 errmsg("CREATE RESOURCE GROUP cannot run inside a subtransaction")));
 
 	/*
 	 * Check for an illegal name ('none' is used to signify no group in ALTER
@@ -155,7 +278,7 @@ CreateResourceGroup(CreateResourceGroupStmt *stmt)
 	CatalogUpdateIndexes(pg_resgroup_rel, tuple);
 
 	/* process the WITH (...) list items */
-	updateResgroupCapability(groupid, &options);
+	insertResgroupCapabilities(groupid, &options);
 
 	/* Dispatch the statement to segments */
 	if (Gp_role == GP_ROLE_DISPATCH)
@@ -181,10 +304,15 @@ CreateResourceGroup(CreateResourceGroupStmt *stmt)
 
 		AllocResGroupEntry(groupid);
 
+		/* Create os dependent part for this resource group */
+
+		ResGroupOps_CreateGroup(groupid);
+		ResGroupOps_SetCpuRateLimit(groupid, options.cpuRateLimit);
+
 		/* Argument of callback function should be allocated in heap region */
 		callbackArg = (Oid *)MemoryContextAlloc(TopMemoryContext, sizeof(Oid));
 		*callbackArg = groupid;
-		RegisterResourceReleaseCallback(createResGroupAbortCallback, (void *)callbackArg);
+		registerResourceGroupCallback(createResGroupAbortCallback, (void *)callbackArg);
 	}
 	else if (Gp_role == GP_ROLE_DISPATCH)
 		ereport(WARNING,
@@ -213,6 +341,12 @@ DropResourceGroup(DropResourceGroupStmt *stmt)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("must be superuser to drop resource groups")));
+
+	/* Subtransaction is not supported for resource group related operations */
+	if (IsSubTransaction())
+		ereport(ERROR,
+				(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
+				 errmsg("DROP RESOURCE GROUP cannot run inside a subtransaction")));
 
 	/*
 	 * Check the pg_resgroup relation to be certain the resource group already
@@ -278,7 +412,7 @@ DropResourceGroup(DropResourceGroupStmt *stmt)
 	heap_close(pg_resgroup_rel, NoLock);
 
 	/* drop the extended attributes for this resource group */
-	deleteResgroupCapability(groupid);
+	deleteResgroupCapabilities(groupid);
 
 	/*
 	 * Remove any comments on this resource group
@@ -300,28 +434,167 @@ DropResourceGroup(DropResourceGroupStmt *stmt)
 
 	if (IsResGroupEnabled())
 	{
-		/*
-		 * Remove the group from shared memory, this should be performed before
-		 * modifying catalog, since the check of no exiting running transaction may
-		 * fail
-		 */
-		FreeResGroupEntry(groupid, stmt->name);
+		ResGroupCheckForDrop(groupid, stmt->name);
 
 		/* Argument of callback function should be allocated in heap region */
 		callbackArg = (Oid *)MemoryContextAlloc(TopMemoryContext, sizeof(Oid));
 		*callbackArg = groupid;
-		RegisterResourceReleaseCallback(dropResGroupAbortCallback, (void *)callbackArg);
+		registerResourceGroupCallback(dropResGroupAbortCallback, (void *)callbackArg);
 	}
 }
 
 /*
- * Get 'concurrency' of on resource group in pg_resgroupcapability.
+ * ALTER RESOURCE GROUP
  */
-int
-GetConcurrencyForGroup(int groupId)
+void
+AlterResourceGroup(AlterResourceGroupStmt *stmt)
 {
-	text value = getCapabilityForGroup(groupId, RESGROUP_LIMIT_TYPE_CONCURRENCY);
-	return text2int(&value);
+	Relation	pg_resgroup_rel;
+	HeapTuple	tuple;
+	ScanKeyData	scankey;
+	SysScanDesc	sscan;
+	Oid			groupid;
+	ResourceGroupAlterCallbackContext * callbackCtx;
+	char		concurrencyStr[16];
+	char		concurrencyProposedStr[16];
+	int			concurrency;
+	int			concurrencyVal;
+	int			concurrencyProposed;
+	int			newConcurrency;
+	DefElem		*defel;
+	int			limitType;
+
+	/* Permission check - only superuser can alter resource groups. */
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to alter resource groups")));
+
+	/* Subtransaction is not supported for resource group related operations */
+	if (IsSubTransaction())
+		ereport(ERROR,
+				(errcode(ERRCODE_ACTIVE_SQL_TRANSACTION),
+				 errmsg("ALTER RESOURCE GROUP cannot run inside a subtransaction")));
+
+	/* Currently we only support to ALTER one limit at one time */
+	Assert(list_length(stmt->options) == 1);
+	defel = (DefElem *) lfirst(list_head(stmt->options));
+
+	limitType = getResgroupOptionType(defel->defname);
+
+	switch (limitType)
+	{
+		case RESGROUP_LIMIT_TYPE_CONCURRENCY:
+			concurrency = defGetInt64(defel);
+			if (concurrency < RESGROUP_CONCURRENCY_UNLIMITED)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_LIMIT_VALUE),
+						 errmsg("concurrency limit cannot be less than %d",
+								RESGROUP_CONCURRENCY_UNLIMITED)));
+			break;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("unsupported resource group limit type '%s'", defel->defname)));
+	}
+
+	/*
+	 * Check the pg_resgroup relation to be certain the resource group already
+	 * exists.
+	 */
+	pg_resgroup_rel = heap_open(ResGroupRelationId, RowExclusiveLock);
+
+	ScanKeyInit(&scankey,
+				Anum_pg_resgroup_rsgname,
+				BTEqualStrategyNumber, F_NAMEEQ,
+				CStringGetDatum(stmt->name));
+
+	sscan = systable_beginscan(pg_resgroup_rel, ResGroupRsgnameIndexId, true,
+							   SnapshotNow, 1, &scankey);
+
+	tuple = systable_getnext(sscan);
+	if (!HeapTupleIsValid(tuple))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("resource group \"%s\" does not exist",
+						stmt->name)));
+
+	groupid = HeapTupleGetOid(tuple);
+	systable_endscan(sscan);
+	heap_close(pg_resgroup_rel, NoLock);
+
+	/* Argument of callback function should be allocated in heap region */
+	callbackCtx = (ResourceGroupAlterCallbackContext *)
+		MemoryContextAlloc(TopMemoryContext, sizeof(*callbackCtx));
+	callbackCtx->groupid = groupid;
+	callbackCtx->limittype = limitType;
+
+	switch (limitType)
+	{
+		case RESGROUP_LIMIT_TYPE_CONCURRENCY:
+			GetConcurrencyForResGroup(groupid,
+									  &concurrencyVal,
+									  &concurrencyProposed);
+			newConcurrency = CalcConcurrencyValue(groupid,
+												  concurrencyVal,
+												  concurrencyProposed,
+												  concurrency);
+
+
+			snprintf(concurrencyStr, sizeof(concurrencyStr), "%d", newConcurrency);
+			snprintf(concurrencyProposedStr, sizeof(concurrencyProposedStr), "%d", concurrency);
+			updateResgroupCapabilityEntry(groupid, limitType, concurrencyStr, concurrencyProposedStr);
+
+			callbackCtx->value.i = newConcurrency;
+			callbackCtx->proposed.i = concurrency;
+			break;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("unsupported resource group limit type '%s'", defel->defname)));
+	}
+
+
+	/* Bump command counter to make this change visible in the callback function alterResGroupCommitCallback() */
+	CommandCounterIncrement();
+
+	if (IsResGroupEnabled())
+	{
+		registerResourceGroupCallback(alterResGroupCommitCallback, (void *)callbackCtx);
+	}
+}
+
+/*
+ * Get 'concurrency' of one resource group in pg_resgroupcapability.
+ */
+void
+GetConcurrencyForResGroup(int groupId, int *value, int *proposed)
+{
+	char *valueStr;
+	char *proposedStr;
+
+	getResgroupCapabilityEntry(groupId, RESGROUP_LIMIT_TYPE_CONCURRENCY, &valueStr, &proposedStr);
+
+	if (value != NULL)
+		*value = pg_atoi(valueStr, sizeof(int32), 0);
+
+	if (proposed != NULL)
+		*proposed = pg_atoi(proposedStr, sizeof(int32), 0);
+}
+
+/*
+ * Get 'cpu_rate_limit' of one resource group in pg_resgroupcapability.
+ */
+float
+GetCpuRateLimitForResGroup(int groupId)
+{
+	char *valueStr;
+	char *proposedStr;
+
+	getResgroupCapabilityEntry(groupId, RESGROUP_LIMIT_TYPE_CPU,
+							   &valueStr, &proposedStr);
+
+	return str2Float(valueStr, "cpu_rate_limit");
 }
 
 /*
@@ -396,12 +669,262 @@ GetResGroupIdForRole(Oid roleid)
 }
 
 /*
+ * Convert from property name to ResGroupStatType.
+ */
+static ResGroupStatType
+propNameToType(const char *name)
+{
+	if (!strcmp(name, "num_running"))
+		return RES_GROUP_STAT_NRUNNING;
+	else if (!strcmp(name, "num_queueing"))
+		return RES_GROUP_STAT_NQUEUEING;
+	else if (!strcmp(name, "cpu_usage"))
+		return RES_GROUP_STAT_CPU_USAGE;
+	else if (!strcmp(name, "memory_usage"))
+		return RES_GROUP_STAT_MEM_USAGE;
+	else if (!strcmp(name, "total_queue_duration"))
+		return RES_GROUP_STAT_TOTAL_QUEUE_TIME;
+	else if (!strcmp(name, "num_queued"))
+		return RES_GROUP_STAT_TOTAL_QUEUED;
+	else if (!strcmp(name, "num_executed"))
+		return RES_GROUP_STAT_TOTAL_EXECUTED;
+	else
+		return RES_GROUP_STAT_UNKNOWN;
+}
+
+/*
+ * Get cpu usage.
+ *
+ * On QD this function dispatch the request to all QEs, collecting both
+ * QEs' and QD's cpu usage and calculate the average.
+ *
+ * On QE this function only collect the cpu usage on itself.
+ *
+ * Cpu usage is a ratio within [0%, 100%], however due to error the actual
+ * value might be greater than 100%, that's not a bug.
+ */
+static void
+getCpuUsage(ResourceGroupStatusContext *ctx)
+{
+	int64 *usages;
+	TimestampTz *timestamps;
+	int nsegs = 1;
+	int ncores;
+	int i, j;
+
+	if (!IsResGroupEnabled())
+		return;
+
+	usages = palloc(sizeof(*usages) * ctx->nrows);
+	timestamps = palloc(sizeof(*timestamps) * ctx->nrows);
+
+	ncores = ResGroupOps_GetCpuCores();
+
+	for (j = 0; j < ctx->nrows; j++)
+	{
+		ResourceGroupStatusRow *row = &ctx->rows[j];
+		Oid rsgid = DatumGetObjectId(row->oid);
+
+		usages[j] = ResGroupOps_GetCpuUsage(rsgid);
+		timestamps[j] = GetCurrentTimestamp();
+	}
+
+	if (Gp_role == GP_ROLE_DISPATCH)
+	{
+		CdbPgResults cdb_pgresults = {NULL, 0};
+		StringInfoData buffer;
+
+		initStringInfo(&buffer);
+		appendStringInfo(&buffer, "SELECT rsgid, value FROM pg_resgroup_get_status_kv('cpu_usage')");
+
+		CdbDispatchCommand(buffer.data, DF_WITH_SNAPSHOT, &cdb_pgresults);
+
+		if (cdb_pgresults.numResults == 0)
+			elog(ERROR, "gp_resgroup_status didn't get back any cpu usage statistics from the segDBs");
+
+		nsegs += cdb_pgresults.numResults;
+
+		for (i = 0; i < cdb_pgresults.numResults; i++)
+		{
+			struct pg_result *pg_result = cdb_pgresults.pg_results[i];
+
+			/*
+			 * Any error here should have propagated into errbuf, so we shouldn't
+			 * ever see anything other that tuples_ok here.  But, check to be
+			 * sure.
+			 */
+			if (PQresultStatus(pg_result) != PGRES_TUPLES_OK)
+			{
+				cdbdisp_clearCdbPgResults(&cdb_pgresults);
+				elog(ERROR, "gp_resgroup_status: resultStatus not tuples_Ok");
+			}
+			else
+			{
+				Assert(PQntuples(pg_result) == ctx->nrows);
+				for (j = 0; j < ctx->nrows; j++)
+				{
+					double usage;
+					const char *result;
+					ResourceGroupStatusRow *row = &ctx->rows[j];
+					Oid rsgid = pg_atoi(PQgetvalue(pg_result, j, 0),
+										sizeof(Oid), 0);
+					/*
+					 * we assume QD and QE shall have the same order
+					 * for all the resgroups, but in case this assumption
+					 * failed we do a full lookup
+					 */
+					if (rsgid != DatumGetObjectId(row->oid))
+					{
+						int k;
+						for (k = 0; k < ctx->nrows; k++)
+						{
+							row = &ctx->rows[k];
+							if (rsgid == DatumGetObjectId(row->oid))
+								break;
+						}
+						if (k == ctx->nrows)
+							elog(ERROR, "gp_resgroup_status: inconsistent resgroups between QD and QE");
+					}
+
+					result = PQgetvalue(pg_result, j, 1);
+					sscanf(result, "%lf", &usage);
+
+					row->cpuAvgUsage += usage;
+				}
+			}
+		}
+
+		cdbdisp_clearCdbPgResults(&cdb_pgresults);
+	}
+	else
+	{
+		pg_usleep(300000);
+	}
+
+	for (j = 0; j < ctx->nrows; j++)
+	{
+		int64 duration;
+		long secs;
+		int usecs;
+		int64 usage;
+		ResourceGroupStatusRow *row = &ctx->rows[j];
+		Oid rsgid = DatumGetObjectId(row->oid);
+
+		usage = ResGroupOps_GetCpuUsage(rsgid) - usages[j];
+
+		TimestampDifference(timestamps[j], GetCurrentTimestamp(),
+							&secs, &usecs);
+
+		duration = secs * 1000000 + usecs;
+
+		/*
+		 * usage is the cpu time (nano seconds) obtained by this group
+		 * in the time duration (micro seconds), so cpu time on one core
+		 * can be calculated as:
+		 *
+		 *     usage / 1000 / duration / ncores
+		 *
+		 * To convert it to percentange we should multiple 100%.
+		 */
+		row->cpuAvgUsage += usage / 10.0 / duration / ncores;
+		row->cpuAvgUsage /= nsegs;
+	}
+}
+
+/*
+ * Get memory usage.
+ *
+ * On QD this function dispatch the request to all QEs, collecting both
+ * QEs' and QD's memory usage.
+ *
+ * On QE this function only collect the memory usage on itself.
+ *
+ * Memory usage is returned in JSON format.
+ */
+static void
+getMemoryUsage(ResourceGroupStatusContext *ctx, const char *prop)
+{
+	int i, j;
+
+	if (!IsResGroupEnabled())
+		return;
+
+	if (Gp_role == GP_ROLE_DISPATCH)
+	{
+		CdbPgResults cdb_pgresults = {NULL, 0};
+		StringInfoData buffer;
+
+		initStringInfo(&buffer);
+		appendStringInfo(&buffer, "SELECT rsgid, value FROM pg_resgroup_get_status_kv('memory_usage') order by rsgid");
+
+		CdbDispatchCommand(buffer.data, DF_WITH_SNAPSHOT, &cdb_pgresults);
+
+		if (cdb_pgresults.numResults == 0)
+			elog(ERROR, "gp_resgroup_status didn't get back any memory usage statistics from the segDBs");
+
+		for (i = 0; i < cdb_pgresults.numResults; i++)
+		{
+			struct pg_result *pg_result = cdb_pgresults.pg_results[i];
+
+			/*
+			 * Any error here should have propagated into errbuf, so we shouldn't
+			 * ever see anything other that tuples_ok here.  But, check to be
+			 * sure.
+			 */
+			if (PQresultStatus(pg_result) != PGRES_TUPLES_OK)
+			{
+				cdbdisp_clearCdbPgResults(&cdb_pgresults);
+				elog(ERROR, "gp_resgroup_status: resultStatus not tuples_Ok");
+			}
+
+			Assert(PQntuples(pg_result) == ctx->nrows);
+			for (j = 0; j < ctx->nrows; j++)
+			{
+				const char *result;
+				ResourceGroupStatusRow *row = &ctx->rows[j];
+				Oid rsgid = pg_atoi(PQgetvalue(pg_result, j, 0), sizeof(Oid), 0);
+
+				if (row->memoryUsage->len == 0)
+				{
+					char statVal[MAXDATELEN + 1];
+
+					row->oid = rsgid;
+					ResGroupGetStat(rsgid, RES_GROUP_STAT_MEM_USAGE, statVal, sizeof(statVal), prop);
+					appendStringInfo(row->memoryUsage, "{\"%d\":%s", GpIdentity.segindex, statVal);
+				}
+
+				result = PQgetvalue(pg_result, j, 1);
+				appendStringInfo(row->memoryUsage, ", %s", result);
+
+				if (i == cdb_pgresults.numResults - 1)
+					appendStringInfoChar(row->memoryUsage, '}');
+			}
+		}
+
+		cdbdisp_clearCdbPgResults(&cdb_pgresults);
+	}
+	else
+	{
+		for (j = 0; j < ctx->nrows; j++)
+		{
+			char statVal[MAXDATELEN + 1];
+			ResourceGroupStatusRow *row = &ctx->rows[j];
+			Oid groupId = DatumGetObjectId(row->oid);
+
+			ResGroupGetStat(groupId, RES_GROUP_STAT_MEM_USAGE, statVal, sizeof(statVal), prop);
+			appendStringInfo(row->memoryUsage, "\"%d\":%s", GpIdentity.segindex, statVal);
+		}
+	}
+}
+
+/*
  * Get status of resource groups
  */
 Datum
 pg_resgroup_get_status_kv(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
+	ResourceGroupStatusContext *ctx;
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -429,8 +952,13 @@ pg_resgroup_get_status_kv(PG_FUNCTION_ARGS)
 			Relation pg_resgroup_rel;
 			SysScanDesc sscan;
 			HeapTuple tuple;
+			char *		prop = text_to_cstring(PG_GETARG_TEXT_P(0));
 
-			funcctx->user_fctx = palloc0(sizeof(Datum) * MaxResourceGroups);
+			int ctxsize = sizeof(ResourceGroupStatusContext) +
+				sizeof(ResourceGroupStatusRow) * (MaxResourceGroups - 1);
+
+			funcctx->user_fctx = palloc(ctxsize);
+			ctx = (ResourceGroupStatusContext *) funcctx->user_fctx;
 
 			pg_resgroup_rel = heap_open(ResGroupRelationId, AccessShareLock);
 
@@ -439,11 +967,28 @@ pg_resgroup_get_status_kv(PG_FUNCTION_ARGS)
 			while (HeapTupleIsValid(tuple = systable_getnext(sscan)))
 			{
 				Assert(funcctx->max_calls < MaxResourceGroups);
-				((Datum *) funcctx->user_fctx)[funcctx->max_calls++] = ObjectIdGetDatum(HeapTupleGetOid(tuple));
+				ctx->rows[funcctx->max_calls].cpuAvgUsage = 0;
+				ctx->rows[funcctx->max_calls].memoryUsage = makeStringInfo();
+				ctx->rows[funcctx->max_calls++].oid =
+					ObjectIdGetDatum(HeapTupleGetOid(tuple));
 			}
 			systable_endscan(sscan);
 
 			heap_close(pg_resgroup_rel, AccessShareLock);
+
+			ctx->nrows = funcctx->max_calls;
+			ctx->type = propNameToType(prop);
+			switch (ctx->type)
+			{
+				case RES_GROUP_STAT_CPU_USAGE:
+					getCpuUsage(ctx);
+					break;
+				case RES_GROUP_STAT_MEM_USAGE:
+					getMemoryUsage(ctx, prop);
+					break;
+				default:
+					break;
+			}
 		}
 
 		MemoryContextSwitchTo(oldcontext);
@@ -451,6 +996,7 @@ pg_resgroup_get_status_kv(PG_FUNCTION_ARGS)
 
 	/* stuff done on every call of the function */
 	funcctx = SRF_PERCALL_SETUP();
+	ctx = (ResourceGroupStatusContext *) funcctx->user_fctx;
 
 	if (funcctx->call_cntr < funcctx->max_calls)
 	{
@@ -461,37 +1007,42 @@ pg_resgroup_get_status_kv(PG_FUNCTION_ARGS)
 		HeapTuple	tuple;
 		Oid			groupId;
 		char		statVal[MAXDATELEN + 1];
+		ResourceGroupStatusRow *row = &ctx->rows[funcctx->call_cntr];
 
 		MemSet(values, 0, sizeof(values));
 		MemSet(nulls, 0, sizeof(nulls));
 		MemSet(statVal, 0, sizeof(statVal));
 
-		values[0] = ((Datum *) funcctx->user_fctx)[funcctx->call_cntr];
+		values[0] = row->oid;
 		values[1] = CStringGetTextDatum(prop);
 
 		groupId = DatumGetObjectId(values[0]);
 
-		/* Fill with dummy values */
-		if (!strcmp(prop, "num_running"))
-			ResGroupGetStat(groupId, RES_GROUP_STAT_NRUNNING, statVal, sizeof(statVal));
-		else if (!strcmp(prop, "num_queueing"))
-			ResGroupGetStat(groupId, RES_GROUP_STAT_NQUEUEING, statVal, sizeof(statVal));
-		else if (!strcmp(prop, "cpu_usage"))
-			snprintf(statVal, sizeof(statVal), "%.2f", 0.0);
-		else if (!strcmp(prop, "memory_usage"))
-			snprintf(statVal, sizeof(statVal), "%.2f", 0.0);
-		else if (!strcmp(prop, "total_queue_duration"))
-			ResGroupGetStat(groupId, RES_GROUP_STAT_TOTAL_QUEUE_TIME, statVal, sizeof(statVal));
-		else if (!strcmp(prop, "num_queued"))
-			ResGroupGetStat(groupId, RES_GROUP_STAT_TOTAL_QUEUED, statVal, sizeof(statVal));
-		else if (!strcmp(prop, "num_executed"))
-			ResGroupGetStat(groupId, RES_GROUP_STAT_TOTAL_EXECUTED, statVal, sizeof(statVal));
-		else
-			/* unknown property name */
-			nulls[2] = true;
+		switch (ctx->type)
+		{
+			default:
+			case RES_GROUP_STAT_NRUNNING:
+			case RES_GROUP_STAT_NQUEUEING:
+			case RES_GROUP_STAT_TOTAL_EXECUTED:
+			case RES_GROUP_STAT_TOTAL_QUEUED:
+			case RES_GROUP_STAT_TOTAL_QUEUE_TIME:
+				ResGroupGetStat(groupId, ctx->type, statVal, sizeof(statVal), prop);
+				values[2] = CStringGetTextDatum(statVal);
+				break;
 
-		if (!nulls[2])
-			values[2] = CStringGetTextDatum(statVal);
+			case RES_GROUP_STAT_CPU_USAGE:
+				snprintf(statVal, sizeof(statVal), "%.2lf%%",
+						 row->cpuAvgUsage);
+				values[2] = CStringGetTextDatum(statVal);
+				break;
+
+			case RES_GROUP_STAT_MEM_USAGE:
+				if (IsResGroupEnabled())
+					values[2] = CStringGetTextDatum(row->memoryUsage->data);
+				else
+					values[2] = CStringGetTextDatum("{}");
+				break;
+		}
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 
@@ -609,21 +1160,15 @@ parseStmtOptions(CreateResourceGroupStmt *stmt, ResourceGroupOptions *options)
 }
 
 /*
- * Resource owner call back function
+ * Resource group call back function
  *
  * Remove resource group entry in shared memory when abort transaction which
  * creates resource groups
  */
 static void
-createResGroupAbortCallback(ResourceReleasePhase phase,
-							bool isCommit, bool isTopLevel, void *arg)
+createResGroupAbortCallback(bool isCommit, void *arg)
 {
 	Oid groupId;
-
-	if (!isTopLevel ||
-		IsTransactionPreparing() ||
-		phase != RESOURCE_RELEASE_BEFORE_LOCKS)
-		return;
 
 	if (!isCommit)
 	{
@@ -633,41 +1178,67 @@ createResGroupAbortCallback(ResourceReleasePhase phase,
 		 * FreeResGroupEntry would acquire LWLock, since this callback is called
 		 * after LWLockReleaseAll in AbortTransaction, it is safe here
 		 */
-		FreeResGroupEntry(groupId, NULL);
+		FreeResGroupEntry(groupId);
+
+		/* remove the os dependent part for this resource group */
+		ResGroupOps_DestroyGroup(groupId);
 	}
 
-	UnregisterResourceReleaseCallback(createResGroupAbortCallback, arg);
+	pfree(arg);
 }
 
 /*
- * Resource owner call back function
+ * Resource group call back function
  *
- * Restore resource group entry in shared memory when abort transaction which
+ * Remove resource group entry in shared memory when commit transaction which
  * drops resource groups
  */
 static void
-dropResGroupAbortCallback(ResourceReleasePhase phase,
-						  bool isCommit, bool isTopLevel, void *arg)
+dropResGroupAbortCallback(bool isCommit, void *arg)
 {
 	Oid groupId;
 
-	if (!isTopLevel ||
-		IsTransactionPreparing() ||
-		phase != RESOURCE_RELEASE_BEFORE_LOCKS)
-		return;
+	groupId = *(Oid *)arg;
+	ResGroupDropCheckForWakeup(groupId, isCommit);
 
-	if (!isCommit)
+	if (isCommit)
 	{
-		groupId = *(Oid *)arg;
-
-		/*
-		 * AllocResGroupEntry would acquire LWLock, since this callback is called
-		 * after LWLockReleaseAll in AbortTransaction, it is safe here
-		 */
-		AllocResGroupEntry(groupId);
+		/* remove the os dependent part for this resource group */
+		ResGroupOps_DestroyGroup(groupId);
 	}
 
-	UnregisterResourceReleaseCallback(dropResGroupAbortCallback, arg);
+	pfree(arg);
+}
+
+/*
+ * Resource group call back function
+ *
+ * When ALTER RESOURCE GROUP SET CONCURRENCY commits, some queueing
+ * transaction of this resource group may need to be woke up.
+ *
+ */
+static void
+alterResGroupCommitCallback(bool isCommit, void *arg)
+{
+	if (isCommit)
+	{
+		ResourceGroupAlterCallbackContext * ctx =
+			(ResourceGroupAlterCallbackContext *) arg;
+
+		switch (ctx->limittype)
+		{
+			case RESGROUP_LIMIT_TYPE_CONCURRENCY:
+				/* wake up */
+				ResGroupAlterCheckForWakeup(ctx->groupid,
+											ctx->value.i,
+											ctx->proposed.i);
+				break;
+			default:
+				break;
+		}
+	}
+
+	pfree(arg);
 }
 
 /*
@@ -685,8 +1256,8 @@ dropResGroupAbortCallback(ResourceReleasePhase phase,
  * @param options  the capabilities
  */
 static void
-updateResgroupCapability(Oid groupid,
-						 ResourceGroupOptions *options)
+insertResgroupCapabilities(Oid groupid,
+						   ResourceGroupOptions *options)
 {
 	char value[64];
 	Relation resgroup_capability_rel = heap_open(ResGroupCapabilityRelationId, RowExclusiveLock);
@@ -694,19 +1265,83 @@ updateResgroupCapability(Oid groupid,
 	validateCapabilities(resgroup_capability_rel, groupid, options);
 
 	sprintf(value, "%d", options->concurrency);
-	insertTupleIntoResCapability(resgroup_capability_rel, groupid, RESGROUP_LIMIT_TYPE_CONCURRENCY, value);
+	insertResgroupCapabilityEntry(resgroup_capability_rel, groupid, RESGROUP_LIMIT_TYPE_CONCURRENCY, value);
 
 	sprintf(value, "%.2f", options->cpuRateLimit);
-	insertTupleIntoResCapability(resgroup_capability_rel, groupid, RESGROUP_LIMIT_TYPE_CPU, value);
+	insertResgroupCapabilityEntry(resgroup_capability_rel, groupid, RESGROUP_LIMIT_TYPE_CPU, value);
 
 	sprintf(value, "%.2f", options->memoryLimit);
-	insertTupleIntoResCapability(resgroup_capability_rel, groupid, RESGROUP_LIMIT_TYPE_MEMORY, value);
+	insertResgroupCapabilityEntry(resgroup_capability_rel, groupid, RESGROUP_LIMIT_TYPE_MEMORY, value);
 
 	sprintf(value, "%.2f", options->redzoneLimit);
-	insertTupleIntoResCapability(resgroup_capability_rel, groupid, RESGROUP_LIMIT_TYPE_MEMORY_REDZONE, value);
+	insertResgroupCapabilityEntry(resgroup_capability_rel, groupid, RESGROUP_LIMIT_TYPE_MEMORY_REDZONE, value);
 
 	heap_close(resgroup_capability_rel, NoLock);
 }
+
+/*
+ * Update an entry in pg_resgroupcapability
+ *
+ * groupid and type are the update key, value and proposed are the update value.
+ */
+static void
+updateResgroupCapabilityEntry(Oid groupid, uint16 type, char *value, char *proposed)
+{
+	HeapTuple	oldTuple;
+	HeapTuple	newTuple;
+	SysScanDesc	sscan;
+	ScanKeyData	scankey[2];
+	Datum		values[Natts_pg_resgroupcapability];
+	bool		isnull[Natts_pg_resgroupcapability];
+	bool		repl[Natts_pg_resgroupcapability];
+
+	Relation resgroupCapabilityRel = heap_open(ResGroupCapabilityRelationId, RowExclusiveLock);
+
+	ScanKeyInit(&scankey[0],
+				Anum_pg_resgroupcapability_resgroupid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(groupid));
+
+	ScanKeyInit(&scankey[1],
+				Anum_pg_resgroupcapability_reslimittype,
+				BTEqualStrategyNumber, F_INT2EQ,
+				UInt16GetDatum(type));
+
+	sscan = systable_beginscan(resgroupCapabilityRel, ResGroupCapabilityResgroupidResLimittypeIndexId, true,
+							   SnapshotNow, 2, scankey);
+
+	if (!HeapTupleIsValid(oldTuple = systable_getnext(sscan)))
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("capability missing for resource group")));
+
+	MemSet(isnull, 0, sizeof(bool) * Natts_pg_resgroupcapability);
+	MemSet(repl, 0, sizeof(bool) * Natts_pg_resgroupcapability);
+
+	if (value != NULL)
+	{
+		values[Anum_pg_resgroupcapability_value - 1] = CStringGetTextDatum(value);
+		isnull[Anum_pg_resgroupcapability_value - 1] = false;
+		repl[Anum_pg_resgroupcapability_value - 1]  = true;
+	}
+
+	if (proposed != NULL)
+	{
+		values[Anum_pg_resgroupcapability_proposed - 1] = CStringGetTextDatum(proposed);
+		isnull[Anum_pg_resgroupcapability_proposed - 1] = false;
+		repl[Anum_pg_resgroupcapability_proposed - 1]  = true;
+	}
+
+	newTuple = heap_modify_tuple(oldTuple, RelationGetDescr(resgroupCapabilityRel),
+								  values, isnull, repl);
+
+	simple_heap_update(resgroupCapabilityRel, &oldTuple->t_self, newTuple);
+	CatalogUpdateIndexes(resgroupCapabilityRel, newTuple);
+
+	systable_endscan(sscan);
+	heap_close(resgroupCapabilityRel, NoLock);
+}
+
 /*
  * Validate the capabilities.
  *
@@ -774,7 +1409,7 @@ validateCapabilities(Relation rel,
  * @param value    the limit value
  */
 static void
-insertTupleIntoResCapability(Relation rel,
+insertResgroupCapabilityEntry(Relation rel,
 							 Oid groupid,
 							 uint16 type,
 							 char *value)
@@ -800,19 +1435,21 @@ insertTupleIntoResCapability(Relation rel,
 /*
  * Retrive capability value from pg_resgroupcapability
  */
-static text
-getCapabilityForGroup(int groupId, int type)
+static void
+getResgroupCapabilityEntry(int groupId, int type, char **value, char **proposed)
 {
 	SysScanDesc	sscan;
 	ScanKeyData	key[2];
 	HeapTuple	tuple;
+	bool isNull;
+	Datum valueDatum;
+	Datum proposedDatum;
 	Relation	relResGroupCapability;
-	Form_pg_resgroupcapability	capability;
 	ResourceOwner owner = NULL;
 
 	if (CurrentResourceOwner == NULL)
 	{
-		owner = ResourceOwnerCreate(NULL, "getCapabilityForGroup");
+		owner = ResourceOwnerCreate(NULL, "getResgroupCapabilityEntry");
 		CurrentResourceOwner = owner;
 	}
 
@@ -849,7 +1486,12 @@ getCapabilityForGroup(int groupId, int type)
 				 errmsg("Cannot find capability for group: %d and type: %d", groupId, type)));
 	}
 
-	capability = (Form_pg_resgroupcapability) GETSTRUCT(tuple);
+	valueDatum = heap_getattr(tuple, Anum_pg_resgroupcapability_value, relResGroupCapability->rd_att, &isNull);
+	*value = DatumGetCString(DirectFunctionCall1(textout, valueDatum));
+
+	proposedDatum = heap_getattr(tuple, Anum_pg_resgroupcapability_proposed, relResGroupCapability->rd_att, &isNull);
+	*proposed = DatumGetCString(DirectFunctionCall1(textout, proposedDatum));
+
 	systable_endscan(sscan);
 
 	/*
@@ -863,15 +1505,13 @@ getCapabilityForGroup(int groupId, int type)
 		CurrentResourceOwner = NULL;
 		ResourceOwnerDelete(owner);
 	}
-
-	return capability->value;
 }
 
-/* 
+/*
  * Delete capability entries of one resource group.
  */
 static void
-deleteResgroupCapability(Oid groupid)
+deleteResgroupCapabilities(Oid groupid)
 {
 	Relation	 resgroup_capability_rel;
 	HeapTuple	 tuple;
@@ -975,16 +1615,14 @@ GetResGroupNameForId(Oid oid, LOCKMODE lockmode)
 }
 
 /*
- * Convert a text to a float value.
+ * Convert a C str to a float value.
  *
- * @param text  the text
+ * @param str   the C str
  * @param prop  the property name
  */
 static float
-text2Float(const text *text, const char *prop)
+str2Float(const char *str, const char *prop)
 {
-	char *str = DatumGetCString(DirectFunctionCall1(textout,
-								 PointerGetDatum(text)));
 	char *end = NULL;
 	double val = strtod(str, &end);
 
@@ -999,13 +1637,16 @@ text2Float(const text *text, const char *prop)
 }
 
 /*
- * Convert a 'text' value to integer
+ * Convert a text to a float value.
+ *
+ * @param text  the text
+ * @param prop  the property name
  */
-static int
-text2int(const text *value)
+static float
+text2Float(const text *text, const char *prop)
 {
-	char *valueStr = DatumGetCString(DirectFunctionCall1(
-									textout,
-									PointerGetDatum(value)));
-	return pg_atoi(valueStr, sizeof(int32), 0);
+	char *str = DatumGetCString(DirectFunctionCall1(textout,
+								 PointerGetDatum(text)));
+
+	return str2Float(str, prop);
 }

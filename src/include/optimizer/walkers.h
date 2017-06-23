@@ -32,7 +32,6 @@ extern bool range_table_walker(List *rtable, bool (*walker) (),
 extern bool query_or_expression_tree_walker(Node *node, bool (*walker) (),
 												   void *context, int flags);
 
-
 /* The plan associated with a SubPlan is found in a list.  During planning this is in
  * the global structure found through the root PlannerInfo.  After planning this is in
  * the PlannedStmt.
@@ -45,6 +44,15 @@ typedef struct plan_tree_base_prefix
 {
 	Node *node; /* PlannerInfo* or PlannedStmt* */
 } plan_tree_base_prefix;
+
+/*
+ * Structure to hold the SUBPLAN plan_id used in the plan
+ */
+typedef struct SubPlanWalkerContext
+{
+	plan_tree_base_prefix base; /* Required prefix for plan_tree_walker/mutator */
+	Bitmapset	   *bms_subplans; /* Bitmapset for used subplans */
+} SubPlanWalkerContext;
 
 extern void planner_init_plan_tree_base(plan_tree_base_prefix *base, PlannerInfo *root);
 extern void exec_init_plan_tree_base(plan_tree_base_prefix *base, PlannedStmt *stmt);

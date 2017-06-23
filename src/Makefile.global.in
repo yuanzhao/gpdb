@@ -36,7 +36,7 @@ PG_VERSION = @PG_PACKAGE_VERSION@
 PG_MAJORVERSION = @PG_MAJORVERSION@
 
 # GPDB version number
-GP_VERSION = @PACKAGE_VERSION@
+GP_VERSION = @GP_VERSION_SHORT@
 GP_MAJORVERSION = @GP_MAJORVERSION@
 
 ADDON_DIR = @ADDON_DIR@
@@ -193,7 +193,10 @@ enable_snmp			= @enable_snmp@
 enable_ddboost	    = @enable_ddboost@
 enable_netbackup	= @enable_netbackup@
 enable_mapreduce    = @enable_mapreduce@
+enable_gpcloud 	    = @enable_gpcloud@
 enable_gpperfmon    = @enable_gpperfmon@
+
+enable_segwalrep    = @enable_segwalrep@
 
 python_includespec	= @python_includespec@
 python_libdir		= @python_libdir@

@@ -9,7 +9,7 @@
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeFunctionscan.c,v 1.45.2.1 2008/02/29 02:49:43 neilc Exp $
+ *	  $PostgreSQL: pgsql/src/backend/executor/nodeFunctionscan.c,v 1.47 2008/10/01 19:51:49 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -93,6 +93,7 @@ FunctionNext(FunctionScanState *node)
 	slot = node->ss.ss_ScanTupleSlot;
 	if (tuplestore_gettupleslot(tuplestorestate, 
 				ScanDirectionIsForward(direction),
+				false,
 				slot))
 	{
 		/* CDB: Label each row with a synthetic ctid for subquery dedup. */
@@ -112,7 +113,7 @@ FunctionNext(FunctionScanState *node)
 
 	if (!TupIsNull(slot))
 	{
-		Gpmon_M_Incr_Rows_Out(GpmonPktFromFuncScanState(node));
+		Gpmon_Incr_Rows_Out(GpmonPktFromFuncScanState(node));
 		CheckSendPlanStateGpmonPkt(&node->ss.ps);
 	}
 
@@ -154,6 +155,9 @@ ExecInitFunctionScan(FunctionScan *node, EState *estate, int eflags)
 	Oid			funcrettype;
 	TypeFuncClass functypclass;
 	TupleDesc	tupdesc = NULL;
+
+	/* check for unsupported flags */
+	Assert(!(eflags & EXEC_FLAG_MARK));
 
 	/*
 	 * FunctionScan should not have any children.
@@ -321,46 +325,6 @@ ExecEndFunctionScan(FunctionScanState *node)
 }
 
 /* ----------------------------------------------------------------
- *		ExecFunctionMarkPos
- *
- *		Calls tuplestore to save the current position in the stored file.
- * ----------------------------------------------------------------
- */
-void
-ExecFunctionMarkPos(FunctionScanState *node)
-{
-	/*
-	 * if we haven't materialized yet, just return.
-	 */
-	if (!node->tuplestorestate)
-		return;
-
-    node->cdb_mark_ctid = node->cdb_fake_ctid;
-
-	tuplestore_markpos(node->tuplestorestate);
-}
-
-/* ----------------------------------------------------------------
- *		ExecFunctionRestrPos
- *
- *		Calls tuplestore to restore the last saved file position.
- * ----------------------------------------------------------------
- */
-void
-ExecFunctionRestrPos(FunctionScanState *node)
-{
-	/*
-	 * if we haven't materialized yet, just return.
-	 */
-	if (!node->tuplestorestate)
-		return;
-
-    node->cdb_fake_ctid = node->cdb_mark_ctid;
-
-	tuplestore_restorepos(node->tuplestorestate);
-}
-
-/* ----------------------------------------------------------------
  *		ExecFunctionReScan
  *
  *		Rescans the relation.
@@ -399,20 +363,7 @@ initGpmonPktForFunctionScan(Plan *planNode, gpmon_packet_t *gpmon_pkt, EState *e
 {
 	Assert(planNode != NULL && gpmon_pkt != NULL && IsA(planNode, FunctionScan));
 
-	{
-		RangeTblEntry *rte = rt_fetch(((Scan *)planNode)->scanrelid, estate->es_range_table);
-		char *funcname = (rte->funcexpr && IsA(rte->funcexpr, FuncExpr)) ? 
-					get_func_name(((FuncExpr *)rte->funcexpr)->funcid)
-				 	: rte->eref->aliasname;
-
-		Assert(GPMON_FUNCSCAN_TOTAL <= (int)GPMON_QEXEC_M_COUNT);
-		InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate, PMNT_FunctionScan,
-							 (int64)planNode->plan_rows,
-							 funcname);
-
-		if (funcname && funcname != rte->eref->aliasname)
-			pfree(funcname);
-	}
+	InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);
 }
 
 void

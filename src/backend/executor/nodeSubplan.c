@@ -4,11 +4,11 @@
  *	  routines to support subselects
  *
  * Portions Copyright (c) 2005-2010, Greenplum inc
- * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/executor/nodeSubplan.c,v 1.92.2.1 2010/07/28 04:51:14 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/executor/nodeSubplan.c,v 1.95 2008/10/04 21:56:53 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -21,21 +21,19 @@
 
 #include <math.h>
 
-#include "access/heapam.h"
 #include "executor/executor.h"
 #include "executor/nodeSubplan.h"
-#include "cdb/cdbexplain.h"             /* cdbexplain_recvExecStats */
-#include "cdb/cdbvars.h"
-#include "cdb/cdbdisp.h"
-#include "cdb/cdbdisp_query.h"
-#include "cdb/ml_ipc.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/clauses.h"
 #include "utils/array.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
-
-#include <math.h>                       /* ceil() */
+#include "access/heapam.h"
+#include "cdb/cdbexplain.h"             /* cdbexplain_recvExecStats */
+#include "cdb/cdbvars.h"
+#include "cdb/cdbdisp.h"
+#include "cdb/cdbdisp_query.h"
+#include "cdb/ml_ipc.h"
 
 
 static Datum ExecHashSubPlan(SubPlanState *node,
@@ -69,12 +67,16 @@ ExecSubPlan(SubPlanState *node,
 	if (isDone)
 		*isDone = ExprSingleResult;
 
+	/* Sanity checks */
+	if (subplan->subLinkType == CTE_SUBLINK)
+		elog(ERROR, "CTE subplans should not be executed via ExecSubPlan");
 	if (subplan->setParam != NIL)
 		elog(ERROR, "cannot set parent params from subquery");
 
 	/* Remember that we're recursing into a sub-plan */
 	node->planstate->state->currentSubplanLevel++;
 
+	/* Select appropriate evaluation strategy */
 	if (subplan->useHashTable)
 		result = ExecHashSubPlan(node, econtext, isNull);
 	else
@@ -704,11 +706,14 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 	 * If this plan is un-correlated or undirect correlated one and want to
 	 * set params for parent plan then mark parameters as needing evaluation.
 	 *
+	 * A CTE subplan's output parameter is never to be evaluated in the normal
+	 * way, so skip this in that case.
+	 *
 	 * Note that in the case of un-correlated subqueries we don't care about
 	 * setting parent->chgParam here: indices take care about it, for others -
 	 * it doesn't matter...
 	 */
-	if (subplan->setParam != NIL)
+	if (subplan->setParam != NIL && subplan->subLinkType != CTE_SUBLINK)
 	{
 		ListCell   *lst;
 
@@ -718,45 +723,9 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 			ParamExecData *prmExec = &(estate->es_param_exec_vals[paramid]);
 
 			/**
-			 * Has this parameter been already 
-			 * evaluated as part of preprocess_initplan()? If so,
-			 * we shouldn't re-evaluate it. If it has been evaluated,
-			 * we will simply substitute the actual value from
-			 * the external parameters.
+			 * If we need to evaluate a parameter, save the planstate to do so.
 			 */
-			if (Gp_role == GP_ROLE_EXECUTE && subplan->is_initplan)
-			{	
-				ParamListInfo paramInfo = estate->es_param_list_info;
-				ParamExternData *prmExt = NULL;
-				int extParamIndex = -1;
-
-				Assert(paramInfo);
-				Assert(paramInfo->numParams > 0);
-
-				/*
-				 * To locate the value of this pre-evaluated parameter, we need to find
-				 * its location in the external parameter list.
-				 */
-				extParamIndex = paramInfo->numParams - estate->es_plannedstmt->nParamExec + paramid;
-
-				prmExt = &paramInfo->params[extParamIndex];
-
-				/* Make sure the types are valid */
-				if (!OidIsValid(prmExt->ptype))
-				{
-					prmExec->execPlan = NULL;
-					prmExec->isnull = true;
-					prmExec->value = (Datum) 0;
-				}
-				else
-				{
-					/** Hurray! Copy value from external parameter and don't bother setting up execPlan. */
-					prmExec->execPlan = NULL;
-					prmExec->isnull = prmExt->isnull;
-					prmExec->value = prmExt->value;
-				}
-			}
-			else
+			if ((Gp_role != GP_ROLE_EXECUTE || !subplan->is_initplan))
 			{
 				prmExec->execPlan = sstate;
 			}
@@ -1037,22 +1006,21 @@ PG_TRY();
 		}
 	}
 
+	if (subLinkType == ANY_SUBLINK ||
+		subLinkType == ALL_SUBLINK)
+		elog(ERROR, "ANY/ALL subselect unsupported as initplan");
+	if (subLinkType == CTE_SUBLINK)
+		elog(ERROR, "CTE subplans should not be executed via ExecSetParamPlan");
+
 	/*
 	 * Must switch to per-query memory context.
 	 */
 	oldcontext = MemoryContextSwitchTo(econtext->ecxt_per_query_memory);
 
-	if (subLinkType == ANY_SUBLINK ||
-		subLinkType == ALL_SUBLINK)
-		elog(ERROR, "ANY/ALL subselect unsupported as initplan");
-
 	/*
-	 * By definition, an initplan has no parameters from our query level, but
-	 * it could have some from an outer level.	Rescan it if needed.
+	 * Run the plan.  (If it needs to be rescanned, the first ExecProcNode
+	 * call will take care of that.)
 	 */
-	if (planstate->chgParam != NULL)
-		ExecReScan(planstate, NULL);
-
 	for (slot = ExecProcNode(planstate);
 		 !TupIsNull(slot);
 		 slot = ExecProcNode(planstate))
@@ -1061,7 +1029,7 @@ PG_TRY();
 
 		if (subLinkType == EXISTS_SUBLINK || subLinkType == NOT_EXISTS_SUBLINK)
 		{
-			/* There can be only one param... */
+			/* There can be only one setParam... */
 			int			paramid = linitial_int(subplan->setParam);
 			ParamExecData *prm = &(econtext->ecxt_param_exec_vals[paramid]);
 
@@ -1069,7 +1037,7 @@ PG_TRY();
 			if (subLinkType == NOT_EXISTS_SUBLINK)
 				prm->value = BoolGetDatum(false);
 			else
-				prm->value = BoolGetDatum(true);
+			prm->value = BoolGetDatum(true);
 			prm->isnull = false;
 			found = true;
 
@@ -1134,7 +1102,7 @@ PG_TRY();
 	{
 		if (subLinkType == EXISTS_SUBLINK || subLinkType == NOT_EXISTS_SUBLINK)
 		{
-			/* There can be only one param... */
+			/* There can be only one setParam... */
 			int			paramid = linitial_int(subplan->setParam);
 			ParamExecData *prm = &(econtext->ecxt_param_exec_vals[paramid]);
 
@@ -1160,7 +1128,7 @@ PG_TRY();
 	}
 	else if (subLinkType == ARRAY_SUBLINK)
 	{
-		/* There can be only one param... */
+		/* There can be only one setParam... */
 		int			paramid = linitial_int(subplan->setParam);
 		ParamExecData *prm = &(econtext->ecxt_param_exec_vals[paramid]);
 
@@ -1204,15 +1172,15 @@ PG_TRY();
 
 	/* teardown the sequence server */
 	TeardownSequenceServer();
-		
+
 	/* Clean up the interconnect. */
 	if (shouldTeardownInterconnect)
 	{
 		shouldTeardownInterconnect = false;
 
-		TeardownInterconnect(queryDesc->estate->interconnect_context, 
+		TeardownInterconnect(queryDesc->estate->interconnect_context,
 							 queryDesc->estate->motionlayer_context,
-							 false); /* following success on QD */
+							 false, false); /* following success on QD */
 		queryDesc->estate->interconnect_context = NULL;
 	}
 }
@@ -1260,7 +1228,7 @@ PG_CATCH();
 	{
 		TeardownInterconnect(queryDesc->estate->interconnect_context,
 							 queryDesc->estate->motionlayer_context,
-							 true);
+							 true, false);
 		queryDesc->estate->interconnect_context = NULL;
 	}
 	PG_RE_THROW();
@@ -1299,18 +1267,25 @@ ExecReScanSetParamPlan(SubPlanState *node, PlanState *parent)
 		elog(ERROR, "extParam set of initplan is empty");
 
 	/*
-	 * Don't actually re-scan: ExecSetParamPlan does it if needed.
+	 * Don't actually re-scan: it'll happen inside ExecSetParamPlan if needed.
 	 */
 
 	/*
-	 * Mark this subplan's output parameters as needing recalculation
+	 * Mark this subplan's output parameters as needing recalculation.
+	 *
+	 * CTE subplans are never executed via parameter recalculation; instead
+	 * they get run when called by nodeCtescan.c.  So don't mark the output
+	 * parameter of a CTE subplan as dirty, but do set the chgParam bit
+	 * for it so that dependent plan nodes will get told to rescan.
 	 */
 	foreach(l, subplan->setParam)
 	{
 		int			paramid = lfirst_int(l);
 		ParamExecData *prm = &(estate->es_param_exec_vals[paramid]);
 
-		prm->execPlan = node;
+		if (subplan->subLinkType != CTE_SUBLINK)
+			prm->execPlan = node;
+
 		parent->chgParam = bms_add_member(parent->chgParam, paramid);
 	}
 }

@@ -13,6 +13,7 @@
 #include "fmgr.h"
 #include "catalog/dependency.h"
 #include "catalog/oid_dispatch.h"
+#include "catalog/pg_amop.h"
 #include "catalog/pg_attrdef.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_cast.h"
@@ -20,6 +21,8 @@
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_conversion.h"
 #include "catalog/pg_database.h"
+#include "catalog/pg_enum.h"
+#include "catalog/pg_extension.h"
 #include "catalog/pg_extprotocol.h"
 #include "catalog/pg_filespace.h"
 #include "catalog/pg_language.h"
@@ -31,6 +34,10 @@
 #include "catalog/pg_resqueue.h"
 #include "catalog/pg_rewrite.h"
 #include "catalog/pg_tablespace.h"
+#include "catalog/pg_ts_config.h"
+#include "catalog/pg_ts_dict.h"
+#include "catalog/pg_ts_parser.h"
+#include "catalog/pg_ts_template.h"
 #include "catalog/pg_type.h"
 #include "cdb/cdbvars.h"
 #include "utils/builtins.h"
@@ -40,6 +47,18 @@ PG_MODULE_MAGIC;
 #endif
 
 #define GET_STR(textp) DatumGetCString(DirectFunctionCall1(textout, PointerGetDatum(textp)))
+
+/*
+ * The preassign_<object>_oid() functions could all be implemented with a
+ * single preassign_oid() function taking the object type as an argument. While
+ * this would drastically reduce the amount of code in this file, it would make
+ * reading the dumpfile harder, and thats why these are separate function.
+ * Explicitly calling out the name in the function prototype and not taking any
+ * superflous arguments makes it easier to visually inspect and verify the
+ * dump. Should this be revisited, annotating the call with a comment in the
+ * file could be one way forward but it's unclear whether it's worth
+ * addressing.
+ */
 
 Datum		preassign_type_oid(PG_FUNCTION_ARGS);
 Datum		preassign_arraytype_oid(PG_FUNCTION_ARGS);
@@ -62,6 +81,13 @@ Datum		preassign_attrdef_oid(PG_FUNCTION_ARGS);
 Datum		preassign_constraint_oid(PG_FUNCTION_ARGS);
 Datum		preassign_rule_oid(PG_FUNCTION_ARGS);
 Datum		preassign_operator_oid(PG_FUNCTION_ARGS);
+Datum		preassign_tsparser_oid(PG_FUNCTION_ARGS);
+Datum		preassign_tsdict_oid(PG_FUNCTION_ARGS);
+Datum		preassign_tstemplate_oid(PG_FUNCTION_ARGS);
+Datum		preassign_tsconfig_oid(PG_FUNCTION_ARGS);
+Datum		preassign_extension_oid(PG_FUNCTION_ARGS);
+Datum		preassign_enum_oid(PG_FUNCTION_ARGS);
+Datum		preassign_amop_oid(PG_FUNCTION_ARGS);
 
 PG_FUNCTION_INFO_V1(preassign_type_oid);
 PG_FUNCTION_INFO_V1(preassign_arraytype_oid);
@@ -84,6 +110,13 @@ PG_FUNCTION_INFO_V1(preassign_attrdef_oid);
 PG_FUNCTION_INFO_V1(preassign_constraint_oid);
 PG_FUNCTION_INFO_V1(preassign_rule_oid);
 PG_FUNCTION_INFO_V1(preassign_operator_oid);
+PG_FUNCTION_INFO_V1(preassign_tsparser_oid);
+PG_FUNCTION_INFO_V1(preassign_tsdict_oid);
+PG_FUNCTION_INFO_V1(preassign_tstemplate_oid);
+PG_FUNCTION_INFO_V1(preassign_tsconfig_oid);
+PG_FUNCTION_INFO_V1(preassign_extension_oid);
+PG_FUNCTION_INFO_V1(preassign_enum_oid);
+PG_FUNCTION_INFO_V1(preassign_amop_oid);
 
 Datum
 preassign_type_oid(PG_FUNCTION_ARGS)
@@ -170,7 +203,7 @@ preassign_opclass_oid(PG_FUNCTION_ARGS)
 {
 	Oid			opcoid = PG_GETARG_OID(0);
 	char	   *objname = GET_STR(PG_GETARG_TEXT_P(1));
-	Oid			opcnamespace = PG_GETARG_OID(1);
+	Oid			opcnamespace = PG_GETARG_OID(2);
 
 	if (Gp_role == GP_ROLE_UTILITY)
 	{
@@ -413,6 +446,126 @@ preassign_operator_oid(PG_FUNCTION_ARGS)
 	{
 		AddPreassignedOidFromBinaryUpgrade(opoid, OperatorRelationId, opname,
 										   nsoid, InvalidOid, InvalidOid);
+	}
+
+	PG_RETURN_VOID();
+}
+
+Datum
+preassign_tsparser_oid(PG_FUNCTION_ARGS)
+{
+	Oid			parseroid = PG_GETARG_OID(0);
+	Oid			nsoid = PG_GETARG_OID(1);
+	char	   *parsername = GET_STR(PG_GETARG_TEXT_P(2));
+
+	if (Gp_role == GP_ROLE_UTILITY)
+	{
+		AddPreassignedOidFromBinaryUpgrade(parseroid, TSParserRelationId,
+										   parsername, nsoid, InvalidOid,
+										   InvalidOid);
+	}
+
+	PG_RETURN_VOID();
+}
+
+Datum
+preassign_tsdict_oid(PG_FUNCTION_ARGS)
+{
+	Oid			dictoid = PG_GETARG_OID(0);
+	Oid			nsoid = PG_GETARG_OID(1);
+	char	   *dictname = GET_STR(PG_GETARG_TEXT_P(2));
+
+	if (Gp_role == GP_ROLE_UTILITY)
+	{
+		AddPreassignedOidFromBinaryUpgrade(dictoid, TSDictionaryRelationId,
+										   dictname, nsoid, InvalidOid,
+										   InvalidOid);
+	}
+
+	PG_RETURN_VOID();
+}
+
+Datum
+preassign_tstemplate_oid(PG_FUNCTION_ARGS)
+{
+	Oid			templateoid = PG_GETARG_OID(0);
+	Oid			nsoid = PG_GETARG_OID(1);
+	char	   *templatename = GET_STR(PG_GETARG_TEXT_P(2));
+
+	if (Gp_role == GP_ROLE_UTILITY)
+	{
+		AddPreassignedOidFromBinaryUpgrade(templateoid, TSTemplateRelationId,
+										   templatename, nsoid, InvalidOid,
+										   InvalidOid);
+	}
+
+	PG_RETURN_VOID();
+}
+
+Datum
+preassign_tsconfig_oid(PG_FUNCTION_ARGS)
+{
+	Oid			configoid = PG_GETARG_OID(0);
+	Oid			nsoid = PG_GETARG_OID(1);
+	char	   *configname = GET_STR(PG_GETARG_TEXT_P(2));
+
+	if (Gp_role == GP_ROLE_UTILITY)
+	{
+		AddPreassignedOidFromBinaryUpgrade(configoid, TSConfigRelationId,
+										   configname, nsoid, InvalidOid,
+										   InvalidOid);
+	}
+
+	PG_RETURN_VOID();
+}
+
+Datum
+preassign_extension_oid(PG_FUNCTION_ARGS)
+{
+	Oid			extensionoid = PG_GETARG_OID(0);
+	Oid			nsoid = PG_GETARG_OID(1);
+	char	   *extensionname = GET_STR(PG_GETARG_TEXT_P(2));
+
+	if (Gp_role == GP_ROLE_UTILITY)
+	{
+		AddPreassignedOidFromBinaryUpgrade(extensionoid, ExtensionRelationId,
+										   extensionname, nsoid, InvalidOid,
+										   InvalidOid);
+	}
+
+	PG_RETURN_VOID();
+}
+
+Datum
+preassign_enum_oid(PG_FUNCTION_ARGS)
+{
+	Oid			enumoid = PG_GETARG_OID(0);
+	Oid			typeoid = PG_GETARG_OID(1);
+	char	   *enumlabel = GET_STR(PG_GETARG_TEXT_P(2));
+
+	if (Gp_role == GP_ROLE_UTILITY)
+	{
+		AddPreassignedOidFromBinaryUpgrade(enumoid, EnumRelationId, enumlabel,
+										   InvalidOid, typeoid, InvalidOid);
+	}
+
+	PG_RETURN_VOID();
+}
+
+Datum
+preassign_amop_oid(PG_FUNCTION_ARGS)
+{
+	Oid			amopoid = PG_GETARG_OID(0);
+	Oid			amopmethod = PG_GETARG_OID(1);
+
+	if (Gp_role == GP_ROLE_UTILITY)
+	{
+		AddPreassignedOidFromBinaryUpgrade(amopoid,
+										   AccessMethodOperatorRelationId,
+										   NULL,
+										   InvalidOid,
+										   amopmethod,
+										   InvalidOid);
 	}
 
 	PG_RETURN_VOID();

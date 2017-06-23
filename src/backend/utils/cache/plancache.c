@@ -35,7 +35,7 @@
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/utils/cache/plancache.c,v 1.15.2.4 2010/08/13 16:27:35 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/utils/cache/plancache.c,v 1.23 2008/10/04 21:56:54 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -109,6 +109,7 @@ InitPlanCache(void)
 CachedPlanSource *
 CreateCachedPlan(Node *raw_parse_tree,
 				 const char *query_string,
+				 NodeTag sourceTag,
 				 const char *commandTag,
 				 Oid *param_types,
 				 int num_params,
@@ -145,6 +146,7 @@ CreateCachedPlan(Node *raw_parse_tree,
 	plansource = (CachedPlanSource *) palloc(sizeof(CachedPlanSource));
 	plansource->raw_parse_tree = copyObject(raw_parse_tree);
 	plansource->query_string = query_string ? pstrdup(query_string) : NULL;
+	plansource->sourceTag = sourceTag;
 	plansource->commandTag = commandTag;		/* no copying needed */
 	if (num_params > 0)
 	{
@@ -207,6 +209,7 @@ CreateCachedPlan(Node *raw_parse_tree,
 CachedPlanSource *
 FastCreateCachedPlan(Node *raw_parse_tree,
 					 char *query_string,
+					 NodeTag sourceTag,
 					 const char *commandTag,
 					 Oid *param_types,
 					 int num_params,
@@ -233,6 +236,7 @@ FastCreateCachedPlan(Node *raw_parse_tree,
 	plansource = (CachedPlanSource *) palloc(sizeof(CachedPlanSource));
 	plansource->raw_parse_tree = raw_parse_tree;
 	plansource->query_string = query_string;
+	plansource->sourceTag = sourceTag;
 	plansource->commandTag = commandTag;		/* no copying needed */
 	plansource->param_types = param_types;
 	plansource->num_params = num_params;
@@ -753,7 +757,20 @@ AcquireExecutorLocks(List *stmt_list, bool acquire)
 			 * acquire a non-conflicting lock.
 			 */
 			if (list_member_int(plannedstmt->resultRelations, rt_index))
-				lockmode = RowExclusiveLock;
+			{
+				/*
+				 * RowExclusiveLock is acquired in PostgreSQL here.  Greenplum
+				 * acquires ExclusiveLock to avoid distributed deadlock due to
+				 * concurrent UPDATE/DELETE on the same table.  This is in
+				 * parity with CdbTryOpenRelation().  Catalog tables are
+				 * replicated across cluster and don't suffer from the
+				 * deadlock.
+				 */
+				if (rte->relid > FirstNormalObjectId)
+					lockmode = ExclusiveLock;
+				else
+					lockmode = RowExclusiveLock;
+			}
 			else if (rowmark_member(plannedstmt->rowMarks, rt_index))
 				lockmode = RowShareLock;
 			else
@@ -813,7 +830,20 @@ ScanQueryForLocks(Query *parsetree, bool acquire)
 			case RTE_RELATION:
 				/* Acquire or release the appropriate type of lock */
 				if (rt_index == parsetree->resultRelation)
-					lockmode = RowExclusiveLock;
+				{
+					/*
+					 * RowExclusiveLock is acquired in PostgreSQL here.
+					 * Greenplum acquires ExclusiveLock to avoid distributed
+					 * deadlock due to concurrent UPDATE/DELETE on the same
+					 * table.  This is in parity with CdbTryOpenRelation().
+					 * Catalog tables are replicated across cluster and don't
+					 * suffer from the deadlock.
+					 */
+					if (rte->relid > FirstNormalObjectId)
+						lockmode = ExclusiveLock;
+					else
+						lockmode = RowExclusiveLock;
+				}
 				else if (rowmark_member(parsetree->rowMarks, rt_index))
 					lockmode = RowShareLock;
 				else
@@ -835,15 +865,23 @@ ScanQueryForLocks(Query *parsetree, bool acquire)
 		}
 	}
 
+	/* Recurse into subquery-in-WITH */
+	foreach(lc, parsetree->cteList)
+	{
+		CommonTableExpr *cte = (CommonTableExpr *) lfirst(lc);
+
+		ScanQueryForLocks((Query *) cte->ctequery, acquire);
+	}
+
 	/*
 	 * Recurse into sublink subqueries, too.  But we already did the ones in
-	 * the rtable.
+	 * the rtable and cteList.
 	 */
 	if (parsetree->hasSubLinks)
 	{
 		query_tree_walker(parsetree, ScanQueryWalker,
 						  (void *) &acquire,
-						  QTW_IGNORE_RT_SUBQUERIES);
+						  QTW_IGNORE_RC_SUBQUERIES);
 	}
 }
 

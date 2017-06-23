@@ -3488,14 +3488,14 @@ InitializeGUCOptions(void)
 	stack_rlimit = get_stack_depth_rlimit();
 	if (stack_rlimit > 0)
 	{
-		int			new_limit = (stack_rlimit - STACK_DEPTH_SLOP) / 1024L;
+		long		new_limit = (stack_rlimit - STACK_DEPTH_SLOP) / 1024L;
 
 		if (new_limit > 100)
 		{
 			char		limbuf[16];
 
 			new_limit = Min(new_limit, 2048);
-			sprintf(limbuf, "%d", new_limit);
+			sprintf(limbuf, "%ld", new_limit);
 			SetConfigOption("max_stack_depth", limbuf,
 							PGC_POSTMASTER, PGC_S_ENV_VAR);
 		}
@@ -5337,7 +5337,7 @@ flatten_set_variable_args(const char *name, List *args)
 				break;
 			case T_String:
 				val = strVal(&arg->val);
-				if (arg->typname != NULL)
+				if (arg->typeName != NULL)
 				{
 					/*
 					 * Must be a ConstInterval argument for TIME ZONE. Coerce
@@ -5349,7 +5349,7 @@ flatten_set_variable_args(const char *name, List *args)
 					Datum		interval;
 					char	   *intervalout;
 
-					typoid = typenameTypeId(NULL, arg->typname, &typmod);
+					typoid = typenameTypeId(NULL, arg->typeName, &typmod);
 					Assert(typoid == INTERVALOID);
 
 					interval =

@@ -141,10 +141,10 @@ transformExpr(ParseState *pstate, Node *expr)
 				Value	   *val = &con->val;
 
 				result = (Node *) make_const(pstate, val, con->location);
-				if (con->typname != NULL) {
-					con->typname->location = con->location;
+				if (con->typeName != NULL) {
+					con->typeName->location = con->location;
 					result = typecast_expression(pstate, result,
-												 con->typname);
+												 con->typeName);
 				}
 				break;
 			}
@@ -182,7 +182,7 @@ transformExpr(ParseState *pstate, Node *expr)
 					Oid			elementType;
 					int32		targetTypmod;
 
-					targetType = typenameTypeId(pstate, tc->typname,
+					targetType = typenameTypeId(pstate, tc->typeName,
 												&targetTypmod);
 
 					elementType = get_element_type(targetType);
@@ -207,7 +207,7 @@ transformExpr(ParseState *pstate, Node *expr)
 				}
 
 				arg = transformExpr(pstate, tc->arg);
-				result = typecast_expression(pstate, arg, tc->typname);
+				result = typecast_expression(pstate, arg, tc->typeName);
 				break;
 			}
 
@@ -425,184 +425,6 @@ transformExpr(ParseState *pstate, Node *expr)
 
 	return result;
 }
-
-
-/*
- * parse_expr_location
- *
- * Looks for a node with a 'location' field in the given parse tree expression.
- * Returns the location (the byte offset of a token within the source string),
- * or -1 if unknown.
- *
- * NB: For best results, expr should be an untransformed expression, because
- * after transformExpr() most nodes have no 'location' field.
- */
-int
-parse_expr_location(Expr *expr)
-{
-    int         loc;
-    ListCell   *cell;
-
-    if (expr == NULL)
-         return -1;
-
-    switch (nodeTag(expr))
-    {
-        case T_ColumnRef:
-            loc = ((ColumnRef *)expr)->location;
-            break;
-
-        case T_ParamRef:
-            loc = ((ParamRef *)expr)->location;
-            break;
-
-        case T_A_Const:
-            loc = ((A_Const *)expr)->location;
-            break;
-
-        case T_A_Indirection:
-        {
-            A_Indirection  *ind = (A_Indirection *)expr;
-
-            loc = parse_expr_location((Expr *)ind->arg);
-            if (loc < 0)
-                loc = parse_expr_location((Expr *)ind->indirection);
-            break;
-        }
-
-        case T_TypeCast:
-        {
-            TypeCast   *typecast = (TypeCast *)expr;
-
-            loc = parse_expr_location((Expr *)typecast->arg);
-            if (loc < 0)
-                loc = parse_expr_location((Expr *)typecast->typname);
-            break;
-        }
-
-        case T_A_Expr:
-            loc = ((A_Expr *)expr)->location;
-            break;
-
-        case T_FuncCall:
-            loc = ((FuncCall *)expr)->location;
-            break;
-
-        case T_SubLink:
-            loc = ((SubLink *)expr)->location;
-            break;
-
-        case T_CaseExpr:
-        {
-            CaseExpr   *caseexpr = (CaseExpr *)expr;
-            CaseWhen   *casewhen;
-
-            loc = parse_expr_location(caseexpr->arg);
-            foreach(cell, caseexpr->args)
-            {
-                if (loc >= 0)
-                    break;
-                casewhen = (CaseWhen *)lfirst(cell);
-                loc = parse_expr_location(casewhen->expr);
-                if (loc < 0)
-                    loc = parse_expr_location(casewhen->result);
-            }
-            if (loc < 0)
-                loc = parse_expr_location(caseexpr->defresult);
-            break;
-        }
-
-        case T_ArrayExpr:
-            loc = parse_expr_location((Expr *)((ArrayExpr *)expr)->elements);
-            break;
-
-        case T_RowExpr:
-            loc = parse_expr_location((Expr *)((RowExpr *)expr)->args);
-            break;
-
-        case T_CoalesceExpr:
-            loc = parse_expr_location((Expr *)((CoalesceExpr *)expr)->args);
-            break;
-
-        case T_MinMaxExpr:
-            loc = parse_expr_location((Expr *)((MinMaxExpr *)expr)->args);
-            break;
-
-        case T_NullTest:
-            loc = parse_expr_location(((NullTest *)expr)->arg);
-            break;
-
-        case T_BooleanTest:
-            loc = parse_expr_location(((BooleanTest *)expr)->arg);
-            break;
-
-        case T_GroupingFunc:
-            loc = parse_expr_location((Expr *)((GroupingFunc *)expr)->args);
-            break;
-
-        /* Above nodes taken from transformExpr().  Additional nodes below. */
-
-        case T_JoinExpr:
-            loc = parse_expr_location((Expr *)((JoinExpr *)expr)->rarg);
-            break;
-
-        case T_List:
-            loc = -1;
-            foreach(cell, (List *)expr)
-            {
-                loc = parse_expr_location((Expr *)lfirst(cell));
-                if (loc >= 0)
-                    break;
-            }
-            break;
-
-        case T_RangeFunction:
-            loc = parse_expr_location((Expr *)((RangeFunction *)expr)->funccallnode);
-            break;
-
-        case T_RangeSubselect:
-            loc = parse_expr_location((Expr *)((RangeSubselect *)expr)->subquery);
-            break;
-
-        case T_RangeVar:
-            loc = ((RangeVar *)expr)->location;
-            break;
-
-        case T_ResTarget:
-            loc = ((ResTarget *)expr)->location;
-            break;
-
-        case T_SelectStmt:
-        {
-            SelectStmt *ss = (SelectStmt *)expr;
-
-            if (ss->larg)
-                loc = parse_expr_location((Expr *)ss->larg);        /* set op */
-            else if (ss->valuesLists)
-                loc = parse_expr_location((Expr *)ss->valuesLists); /* VALUES */
-            else
-                loc = parse_expr_location((Expr *)ss->targetList);  /* SELECT */
-            break;
-        }
-
-        case T_TypeName:
-            loc = ((TypeName *)expr)->location;
-            break;
-
-        case T_WindowSpec:
-            loc = ((WindowSpec *)expr)->location;
-            break;
-
-		case T_PercentileExpr:
-			loc = ((PercentileExpr *) expr)->location;
-			break;
-
-        default:
-            loc = -1;
-    }
-    return loc;
-}                               /* parse_expr_location */
-
 
 static Node *
 transformIndirection(ParseState *pstate, Node *basenode, List *indirection)
@@ -931,7 +753,7 @@ exprIsNullConstant(Node *arg)
 		A_Const    *con = (A_Const *) arg;
 
 		if (con->val.type == T_Null &&
-			con->typname == NULL)
+			con->typeName == NULL)
 			return true;
 	}
 	return false;

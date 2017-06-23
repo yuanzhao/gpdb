@@ -1,6 +1,16 @@
 @backup_and_restore_backups
 Feature: Validate command line arguments
 
+    @nbuonly
+    @nbusetup77
+    Scenario: Setup to load NBU libraries
+        Given the test suite is initialized for Netbackup "7.7"
+
+    @ddonly
+    @ddboostsetup
+    Scenario: Setup DDBoost configuration
+        Given the test suite is initialized for DDBoost
+
     Scenario: 1 Dirty table list check on recreating a table with same data and contents
         Given the backup test is initialized with database "bkdb1"
         And there is a "ao" table "public.ao_table" in "bkdb1" with data
@@ -12,6 +22,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And "public.ao_table" is marked as dirty in dirty_list file
 
+    @nbupartI
+    @ddpartI
     Scenario: 2 Simple Incremental Backup
         Given the backup test is initialized with database "bkdb2"
         And there is a "ao" table "public.ao_table" in "bkdb2" with data
@@ -37,7 +49,7 @@ Feature: Validate command line arguments
         And data for partition table "part_external" with partition level "0" is distributed across all segments on "bkdb2"
         When the user runs "gpcrondump -a -x bkdb2"
         Then gpcrondump should return a return code of 0
-        And gpcrondump should print "Validating disk space" to stdout
+        And gpcrondump should print the correct disk space check message
         And the full backup timestamp from gpcrondump is stored
         And the state files are generated under " " for stored "full" timestamp
         And the "last_operation" files are generated under " " for stored "full" timestamp
@@ -58,6 +70,7 @@ Feature: Validate command line arguments
         And "dirty_list" file should be created under " "
         And all the data from "bkdb2" is saved for verification
 
+    @nbupartI
     Scenario: 3 Incremental Backup with -u option
         Given the backup test is initialized with database "bkdb3"
         And there is a "ao" table "public.ao_table" in "bkdb3" with data
@@ -100,6 +113,8 @@ Feature: Validate command line arguments
         And all the data from the remote segments in "bkdb5" are stored in path "/tmp/5" for "inc"
         And all files for full backup have been removed in path "/tmp/5"
 
+    @nbupartI
+    @ddpartI
     Scenario: 5a Full Backup and Restore
         Given the backup test is initialized with database "bkdb5a"
         And there is a "heap" table "public.heap_table" in "bkdb5a" with data
@@ -132,6 +147,8 @@ Feature: Validate command line arguments
         And verify that the "status" file in " " dir contains "reading constraints"
         And verify that the "status" file in " " dir contains "reading triggers"
 
+    @nbupartI
+    @ddpartI
     Scenario: 6 Metadata-only restore
         Given the backup test is initialized with database "bkdb6"
         And schema "schema_heap" exists in "bkdb6"
@@ -141,6 +158,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And the schemas "schema_heap" do not exist in "bkdb6"
 
+    @nbupartI
+    @ddpartI
     Scenario: 7 Metadata-only restore with global objects (-G)
         Given the backup test is initialized with database "bkdb7"
         And schema "schema_heap" exists in "bkdb7"
@@ -152,6 +171,7 @@ Feature: Validate command line arguments
         And the user runs "psql -c 'DROP ROLE "foo%userWITHCAPS"' bkdb7"
         And the schemas "schema_heap" do not exist in "bkdb7"
 
+    @ddpartI
     Scenario: 8 gpdbrestore -L with Full Backup
         Given the backup test is initialized with database "bkdb8"
         And there is a "heap" table "public.heap_table" in "bkdb8" with data
@@ -162,6 +182,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
 
+    @nbupartI
+    @ddpartI
     Scenario: 11 Backup and restore with -G only
         Given the backup test is initialized with database "bkdb11"
         And there is a "heap" table "public.heap_table" in "bkdb11" with data
@@ -199,6 +221,8 @@ Feature: Validate command line arguments
         And gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartI
+    @ddpartI
     Scenario: 14 Full Backup with option -t and Restore
         Given the backup test is initialized with database "bkdb14"
         And there is a "heap" table "public.heap_table" in "bkdb14" with data
@@ -211,6 +235,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
 
+    @nbupartI
+    @ddpartI
     Scenario: 15 Full Backup with option -T and Restore
         Given the backup test is initialized with database "bkdb15"
         And there is a "heap" table "public.heap_table" in "bkdb15" with data
@@ -222,6 +248,8 @@ Feature: Validate command line arguments
         And the temp files "exclude_dump_tables" are not created in the system
         And the timestamp from gpcrondump is stored
 
+    @nbupartI
+    @ddpartI
     Scenario: 16 Full Backup with option --exclude-table-file and Restore
         Given the backup test is initialized with database "bkdb16"
         And there is a "heap" table "public.heap_table" in "bkdb16" with data
@@ -234,6 +262,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
 
+    @nbupartI
+    @ddpartI
     Scenario: 17 Full Backup with option --table-file and Restore
         Given the backup test is initialized with database "bkdb17"
         And there is a "heap" table "public.heap_table" in "bkdb17" with data
@@ -245,17 +275,6 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
-
-    Scenario: 18 plan file creation in directory
-        Given the backup test is initialized with database "bkdb18"
-        And there is a "ao" table "public.ao_table" in "bkdb18" with data
-        And there is a "ao" table "public.ao_index_table" in "bkdb18" with data
-        And table "public.ao_index_table" is assumed to be in dirty state in "bkdb18"
-        When the user runs "gpcrondump -a -x bkdb18"
-        And gpcrondump should return a return code of 0
-        And the user runs "gpcrondump -a -x bkdb18 --incremental"
-        And gpcrondump should return a return code of 0
-        And the timestamp from gpcrondump is stored
 
     Scenario: 19 Simple Plan File Test
         Given the backup test is initialized with database "bkdb19"
@@ -288,6 +307,8 @@ Feature: Validate command line arguments
         And the timestamp for scenario "19" is labeled "ts2"
         And "dirty_list" file should be created under " "
 
+    @nbupartI
+    @ddpartI
     Scenario: 20 No plan file generated
         Given the backup test is initialized with database "bkdb20"
         And there is a "ao" partition table "public.ao_part_table" in "bkdb20" with data
@@ -308,6 +329,8 @@ Feature: Validate command line arguments
         And gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartI
+    @ddpartI
     Scenario: 22 Simple Incremental Backup with AO/CO statistics w/ filter
         Given the backup test is initialized with database "bkdb22"
         And there is a "ao" table "public.ao_table" in "bkdb22" with data
@@ -374,6 +397,8 @@ Feature: Validate command line arguments
         And verify that the "report" file in " " dir contains "Backup Type: Incremental"
         And all the data from "bkdb24" is saved for verification
 
+    @nbupartI
+    @ddpartI
     Scenario: 25 Non compressed incremental backup
         Given the backup test is initialized with database "bkdb25"
         And schema "testschema" exists in "bkdb25"
@@ -456,6 +481,7 @@ Feature: Validate command line arguments
         And "dirty_list" file should be created under " "
         And all the data from "bkdb28" is saved for verification
 
+    @ddpartI
     Scenario: 29 Verify gpdbrestore -s option works with full backup
         Given the backup test is initialized with database "bkdb29"
         And database "bkdb29-2" is dropped and recreated
@@ -472,6 +498,7 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And the database "bkdb29-2" does not exist
 
+    @ddpartI
     Scenario: 30 Verify gpdbrestore -s option works with incremental backup
         Given the backup test is initialized with database "bkdb30"
         And database "bkdb30-2" is dropped and recreated
@@ -493,6 +520,7 @@ Feature: Validate command line arguments
         And all the data from "bkdb30" is saved for verification
         And the database "bkdb30-2" does not exist
 
+    @nbupartI
     Scenario: 31 gpdbrestore -u option with full backup
         Given the backup test is initialized with database "bkdb31"
         And there is a "ao" table "public.ao_table" in "bkdb31" with data
@@ -502,6 +530,7 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb31" is saved for verification
 
+    @nbupartI
     Scenario: 32 gpdbrestore -u option with incremental backup
         Given the backup test is initialized with database "bkdb32"
         And there is a "ao" table "public.ao_table" in "bkdb32" with data
@@ -528,6 +557,8 @@ Feature: Validate command line arguments
         And all the data from "bkdb33-2" is saved for verification
         Then the dump timestamp for "bkdb33, bkdb33-2" are different
 
+    @nbupartI
+    @ddpartI
     Scenario: 34 gpdbrestore with --table-file option
         Given the backup test is initialized with database "bkdb34"
         And there is a "ao" table "public.ao_table" in "bkdb34" with data
@@ -538,6 +569,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb34" is saved for verification
 
+    @nbupartI
+    @ddpartI
     Scenario: 35 Incremental restore with extra full backup
         Given the backup test is initialized with database "bkdb35"
         And there is a "heap" table "public.heap_table" in "bkdb35" with data
@@ -565,6 +598,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb36" is saved for verification
 
+    @nbupartI
+    @ddpartI
     Scenario: 37 Full backup with -T option
         Given the database is running
         And the database "fullbkdb37" does not exist
@@ -577,6 +612,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "fullbkdb37" is saved for verification
 
+    @nbupartI
+    @ddpartI
     Scenario: 38 gpdbrestore with -T option
         Given the backup test is initialized with database "bkdb38"
         And there is a "heap" table "public.heap_table" in "bkdb38" with data
@@ -587,6 +624,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb38" is saved for verification
 
+    @nbupartI
+    @ddpartI
     Scenario: 39 Full backup and restore with -T and --truncate
         Given the backup test is initialized with database "bkdb39"
         And there is a "heap" table "public.heap_table" in "bkdb39" with data
@@ -606,6 +645,8 @@ Feature: Validate command line arguments
         And all the data from "bkdb40" is saved for verification
         And table "public.heap_table" is dropped in "bkdb40"
 
+    @nbupartII
+    @ddpartII
     Scenario: 41 Full backup -T with truncated table
         Given the backup test is initialized with database "bkdb41"
         And there is a "ao" partition table "public.ao_part_table" in "bkdb41" with data
@@ -632,6 +673,8 @@ Feature: Validate command line arguments
         And all the data from "bkdb43" is saved for verification
         When table "public.ao_index_table" is dropped in "bkdb43"
 
+    @nbupartII
+    @ddpartII
     Scenario: 44 Incremental restore with table filter
         Given the backup test is initialized with database "bkdb44"
         And there is a "heap" table "public.heap_table" in "bkdb44" with data
@@ -699,6 +742,7 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb49" is saved for verification
 
+    @ddpartII
     Scenario: 50 gpdbrestore -b option should display the timestamps in sorted order
         Given the backup test is initialized with database "bkdb50"
         And there is a "heap" table "public.heap_table" in "bkdb50" with data
@@ -729,6 +773,7 @@ Feature: Validate command line arguments
         And all the data from "bkdb51" is saved for verification
 
     @scale
+    @nbupartII
     Scenario: 52 Dirty File Scale Test
         Given the backup test is initialized with database "bkdb52"
         And there are "240" "heap" tables "public.heap_table" with data in "bkdb52"
@@ -793,6 +838,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartII
+    @ddpartII
     Scenario: 56 Incremental table filter gpdbrestore with noplan option
         Given the backup test is initialized with database "bkdb56"
         And there is a "ao" partition table "public.ao_part_table" in "bkdb56" with data
@@ -809,6 +856,8 @@ Feature: Validate command line arguments
         And the subdir from gpcrondump is stored
         And the timestamp from gpcrondump is stored
 
+    @nbupartII
+    @ddpartII
     Scenario: 57 gpdbrestore list_backup option
         Given the backup test is initialized with database "bkdb57"
         And there is a "heap" table "public.heap_table" in "bkdb57" with data
@@ -833,6 +882,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartII
+    @ddpartII
     Scenario: 59 gpdbrestore list_backup option with full timestamp
         Given the backup test is initialized with database "bkdb59"
         And there is a "heap" table "public.heap_table" in "bkdb59" with data
@@ -878,6 +929,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored in a list
 
+    @nbupartII
+    @ddpartII
     Scenario: 61 Incremental Backup and Restore with -t filter for Full
         Given the backup test is initialized with database "bkdb61"
         And the prefix "foo" is stored
@@ -985,6 +1038,8 @@ Feature: Validate command line arguments
         And gpcrondump should print "public.ao_index_table" to stdout
         And all the data from "bkdb64" is saved for verification
 
+    @nbupartII
+    @ddpartII
     Scenario: 65 Full Backup with option -T and non-existant table
         Given the backup test is initialized with database "bkdb65"
         And there is a "heap" table "public.heap_table" in "bkdb65" with data
@@ -1011,6 +1066,7 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartII
     Scenario: 67 Dump and Restore metadata
         Given the backup test is initialized with database "bkdb67"
         And the directory "/tmp/custom_timestamps" exists
@@ -1020,7 +1076,7 @@ Feature: Validate command line arguments
         And the full backup timestamp from gpcrondump is stored
         And all the data from the remote segments in "bkdb67" are stored in path "/tmp/custom_timestamps" for "full"
         And verify that the file "/tmp/custom_timestamps/db_dumps/20140101/gp_dump_status_0_2_20140101010101" does not contain "reading indexes"
-        And verify that the file "/tmp/custom_timestamps/db_dumps/20140101/gp_dump_status_-1_1_20140101010101" contains "reading indexes"
+        And verify that the file "/tmp/custom_timestamps/db_dumps/20140101/gp_dump_status_*_1_20140101010101" contains "reading indexes"
 
     Scenario: 68 Restore -T for incremental dump should restore metadata/postdata objects for tablenames with English and multibyte (chinese) characters
         Given the backup test is initialized with database "bkdb68"
@@ -1153,6 +1209,8 @@ Feature: Validate command line arguments
         And the user runs "psql -f test/behave/mgmt_utils/steps/data/drop_table_with_multi_byte_char.sql bkdb71"
         And the user runs "psql -c 'DROP ROLE foo_user' bkdb71"
 
+    @nbupartII
+    @ddpartII
     Scenario: 72 Redirected Restore Full Backup and Restore without -e option
         Given the backup test is initialized with database "bkdb72"
         And the database "bkdb72-2" does not exist
@@ -1163,6 +1221,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartII
+    @ddpartII
     Scenario: 73 Full Backup and Restore with -e option
         Given the backup test is initialized with database "bkdb73"
         And the database "bkdb73-2" does not exist
@@ -1173,6 +1233,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartII
+    @ddpartII
     Scenario: 74 Incremental Backup and Redirected Restore
         Given the backup test is initialized with database "bkdb74"
         And the database "bkdb74-2" does not exist
@@ -1186,6 +1248,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb74" is saved for verification
 
+    @nbupartII
+    @ddpartII
     Scenario: 75 Full backup and redirected restore with -T
         Given the backup test is initialized with database "bkdb75"
         And the database "bkdb75-2" does not exist
@@ -1197,6 +1261,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb75" is saved for verification
 
+    @nbupartII
+    @ddpartII
     Scenario: 76 Full backup and redirected restore with -T and --truncate
         Given the backup test is initialized with database "bkdb76"
         And there is a "ao" table "public.ao_index_table" in "bkdb76" with data
@@ -1205,6 +1271,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb76" is saved for verification
 
+    @nbupartII
+    @ddpartII
     Scenario: 77 Incremental redirected restore with table filter
         Given the backup test is initialized with database "bkdb77"
         And the database "bkdb77-2" does not exist
@@ -1220,6 +1288,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb77" is saved for verification
 
+    @nbupartII
+    @ddpartII
     Scenario: 78 Full Backup and Redirected Restore with --prefix option
         Given the backup test is initialized with database "bkdb78"
         And the prefix "foo" is stored
@@ -1232,6 +1302,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And there should be dump files under " " with prefix "foo"
 
+    @nbupartII
+    @ddpartII
     Scenario: 79 Full Backup and Redirected Restore with --prefix option for multiple databases
         Given the backup test is initialized with database "bkdb79"
         And the prefix "foo" is stored
@@ -1348,6 +1420,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb89" is saved for verification
 
+    @nbupartII
+    @ddpartII
     Scenario: 90 Writable Report/Status Directory Full Backup and Restore without --report-status-dir option
         Given the backup test is initialized with database "bkdb90"
         And there are no report files in "master_data_directory"
@@ -1359,6 +1433,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartII
+    @ddpartII
     Scenario: 91 Writable Report/Status Directory Full Backup and Restore with --report-status-dir option
         Given the backup test is initialized with database "bkdb91"
         And there is a "heap" table "public.heap_table" in "bkdb91" with data
@@ -1389,6 +1465,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And the user runs command "chmod -R 555 /tmp/custom_timestamps/db_dumps"
 
+    @nbupartII
+    @ddpartII
     Scenario: 94 Filtered Full Backup with Partition Table
         Given the backup test is initialized with database "bkdb94"
         And there is a "heap" table "public.heap_table" in "bkdb94" with data
@@ -1398,6 +1476,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb94" is saved for verification
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 95 Filtered Incremental Backup with Partition Table
         Given the backup test is initialized with database "bkdb95"
         And there is a "heap" table "public.heap_table" in "bkdb95" with data
@@ -1409,6 +1489,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb95" is saved for verification
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 96 gpdbrestore runs ANALYZE on restored table only
         Given the backup test is initialized with database "bkdb96"
         And there is a "heap" table "public.heap_table" in "bkdb96" with data
@@ -1422,6 +1504,8 @@ Feature: Validate command line arguments
         And the user truncates "public.ao_index_table" tables in "bkdb96"
         And the user deletes rows from the table "heap_table" of database "bkdb96" where "column1" is "1088"
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 97 Full Backup with multiple -S option and Restore
         Given the backup test is initialized with database "bkdb97"
         And schema "schema_heap, schema_ao, testschema" exists in "bkdb97"
@@ -1434,6 +1518,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 98 Full Backup with option -S and Restore
         Given the backup test is initialized with database "bkdb98"
         And schema "schema_heap, schema_ao" exists in "bkdb98"
@@ -1445,6 +1531,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 99 Full Backup with option -s and Restore
         Given the backup test is initialized with database "bkdb99"
         And schema "schema_heap, schema_ao" exists in "bkdb99"
@@ -1456,6 +1544,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 100 Full Backup with option --exclude-schema-file and Restore
         Given the backup test is initialized with database "bkdb100"
         And schema "schema_heap, schema_ao, testschema" exists in "bkdb100"
@@ -1469,6 +1559,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 101 Full Backup with option --schema-file and Restore
         Given the backup test is initialized with database "bkdb101"
         And schema "schema_heap, schema_ao, testschema" exists in "bkdb101"
@@ -1482,6 +1574,8 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And verify that the "report" file in " " dir contains "Backup Type: Full"
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 106 Full Backup and Restore with option --change-schema
         Given the backup test is initialized with database "bkdb106"
         And schema "schema_heap, schema_ao, schema_new" exists in "bkdb106"
@@ -1522,6 +1616,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And "statistics" file should be created under " "
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 109 Backup and restore with statistics and table filters
         Given the backup test is initialized with database "bkdb109"
         And there is a "heap" table "public.heap_table" in "bkdb109" with data
@@ -1542,6 +1638,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 111 Full Backup with option --schema-file with prefix option and Restore
         Given the backup test is initialized with database "bkdb111"
         And the prefix "foo" is stored
@@ -1564,6 +1662,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 113 Simple Full Backup with AO/CO statistics w/ filter schema
         Given the backup test is initialized with database "bkdb113"
         And schema "schema_ao, testschema" exists in "bkdb113"
@@ -1576,6 +1676,8 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 114 Restore with --redirect option should not rely on existance of dumped database
         Given the backup test is initialized with database "bkdb114"
         When the user runs "gpcrondump -a -x bkdb114"
@@ -1608,9 +1710,11 @@ Feature: Validate command line arguments
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 117 Schema level restore with gpdbrestore -S option for views, sequences, and functions
         Given the user runs "psql -f test/behave/mgmt_utils/steps/data/schema_level_test_workload.sql template1"
-        When the user runs command "gpcrondump -a -x schema_level_test_db"
+        When the user runs "gpcrondump -a -x schema_level_test_db"
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
@@ -1620,127 +1724,109 @@ Feature: Validate command line arguments
         Then psql should return a return code of 0
         When the user runs "psql -d bkdb118 -c "alter database bkdb118 set gp_default_storage_options='appendonly=true,blocksize=65536';""
         Then psql should return a return code of 0
-        When the user runs command "gpcrondump -a -x bkdb118"
+        When the user runs "gpcrondump -a -x bkdb118"
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
     Scenario: 120 Simple full backup and restore with special character
         Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 ""
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB""
         And the timestamp from gpcrondump is stored
         Then gpcrondump should return a return code of 0
-        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " > /tmp/120_special_table_data.ans"
+        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql "$SP_CHAR_DB" > /tmp/120_special_table_data.ans"
 
     Scenario: 121 gpcrondump with -T option where table name, schema name and database name contains special character
         Given the backup test is initialized for special characters
-        And a list of files "121_ao,121_heap" of tables " S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . ao_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 , S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . heap_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 " in " DB`~@#$%^&*()_-+[{]}|\;: \'/?><;1 " exists for validation
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " -T " S\`~@#\$%^&*()-+[{]}|\\;: \\'\"/?><1 "." co_T\`~@#\$%^&*()-+[{]}|\\;: \\'\"/?><1 ""
+        And a list of files "121_ao,121_heap" of tables "$SP_CHAR_SCHEMA.$SP_CHAR_AO,$SP_CHAR_SCHEMA.$SP_CHAR_HEAP" in "$SP_CHAR_DB" exists for validation
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" -T "$SP_CHAR_SCHEMA"."$SP_CHAR_CO""
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 122 gpcrondump with --exclude-table-file option where table name, schema name and database name contains special character
         Given the backup test is initialized for special characters
-        And a list of files "122_ao,122_heap" of tables " S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . ao_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 , S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . heap_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 " in " DB`~@#$%^&*()_-+[{]}|\;: \'/?><;1 " exists for validation
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " --exclude-table-file test/behave/mgmt_utils/steps/data/special_chars/exclude-table-file.txt"
+        And a list of files "122_ao,122_heap" of tables "$SP_CHAR_SCHEMA.$SP_CHAR_AO,$SP_CHAR_SCHEMA.$SP_CHAR_HEAP" in "$SP_CHAR_DB" exists for validation
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" --exclude-table-file test/behave/mgmt_utils/steps/data/special_chars/exclude-table-file.txt"
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
     Scenario: 123 gpcrondump with --table-file option where table name, schema name and database name contains special character
         Given the backup test is initialized for special characters
-        And a list of files "123_ao,123_heap" of tables " S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . ao_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 , S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . heap_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 " in " DB`~@#$%^&*()_-+[{]}|\;: \'/?><;1 " exists for validation
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " --table-file test/behave/mgmt_utils/steps/data/special_chars/table-file.txt"
+        And a list of files "123_ao,123_heap" of tables "$SP_CHAR_SCHEMA.$SP_CHAR_AO,$SP_CHAR_SCHEMA.$SP_CHAR_HEAP" in "$SP_CHAR_DB" exists for validation
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" --table-file test/behave/mgmt_utils/steps/data/special_chars/table-file.txt"
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
     Scenario: 124 gpcrondump with -t option where table name, schema name and database name contains special character
         Given the backup test is initialized for special characters
-        And a list of files "124_ao" of tables " S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . ao_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 " in " DB`~@#$%^&*()_-+[{]}|\;: \'/?><;1 " exists for validation
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " -t " S\`~@#\$%^&*()-+[{]}|\\;: \\'\"/?><1 "." ao_T\`~@#\$%^&*()-+[{]}|\\;: \\'\"/?><1 ""
+        And a list of files "124_ao" of tables "$SP_CHAR_SCHEMA.$SP_CHAR_AO" in "$SP_CHAR_DB" exists for validation
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" -t "$SP_CHAR_SCHEMA"."$SP_CHAR_AO""
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 125 gpcrondump with --schema-file option when schema name and database name contains special character
         Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " --schema-file test/behave/mgmt_utils/steps/data/special_chars/schema-file.txt"
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" --schema-file test/behave/mgmt_utils/steps/data/special_chars/schema-file.txt"
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
-        And the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " > /tmp/125_special_table_data.ans"
+        And the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql "$SP_CHAR_DB" > /tmp/125_special_table_data.ans"
 
     Scenario: 126 gpcrondump with -s option when schema name and database name contains special character
         Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " -s " S\`~@#\$%^&*()-+[{]}|\\;: \\'\"/?><1 ""
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" -s "$SP_CHAR_SCHEMA""
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
-        And the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " > /tmp/126_special_table_data.ans"
+        And the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql "$SP_CHAR_DB" > /tmp/126_special_table_data.ans"
 
     Scenario: 127 gpcrondump with --exclude-schema-file option when schema name and database name contains special character
         Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " --exclude-schema-file test/behave/mgmt_utils/steps/data/special_chars/schema-file.txt"
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" --exclude-schema-file test/behave/mgmt_utils/steps/data/special_chars/schema-file.txt"
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
     Scenario: 128 gpcrondump with -S option when schema name and database name contains special character
         Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " -S " S\`~@#\$%^&*()-+[{]}|\\;: \\'\"/?><1 ""
-        Then gpcrondump should return a return code of 0
-        And the timestamp from gpcrondump is stored
-
-    Scenario: 129 Gpdbrestore with --table-file option when table name, schema name and database name contains special character
-        Given the backup test is initialized for special characters
-        And a list of files "129_ao,129_heap" of tables " S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . ao_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 , S`~@#$%^&*()-+[{]}|\;: \'"/?><1 . heap_T`~@#$%^&*()-+[{]}|\;: \'"/?><1 " in " DB`~@#$%^&*()_-+[{]}|\;: \'/?><;1 " exists for validation
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 ""
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" -S "$SP_CHAR_SCHEMA""
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
     Scenario: 130 Gpdbrestore with -T, --truncate, and --change-schema options when table name, schema name and database name contains special character
         Given the backup test is initialized for special characters
-        And the user runs command "psql -f  psql -c """select * from \" S\`~@#\$%^&*()-+[{]}|\\;: \\'\"\"/?><1 \".\" ao_T\`~@#\$%^&*()-+[{]}|\\;: \\'\"\"/?><1 \" order by 1""" -d " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 "  > /tmp/130_table_data.ans"
-        And the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 ""
+        And the user runs command "psql -f  psql -c """select * from \"$SP_CHAR_SCHEMA\".\"$SP_CHAR_AO\" order by 1""" -d "$SP_CHAR_DB"  > /tmp/130_table_data.ans"
+        And the user runs "gpcrondump -a -x "$SP_CHAR_DB""
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 131 gpcrondump with --incremental option when table name, schema name and database name contains special character
         Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 ""
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB""
         Then gpcrondump should return a return code of 0
         Given the user runs "psql -f test/behave/mgmt_utils/steps/data/special_chars/insert_into_special_table.sql template1"
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " --incremental"
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB" --incremental"
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
-        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " > /tmp/131_special_table_data.ans"
+        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql "$SP_CHAR_DB" > /tmp/131_special_table_data.ans"
 
+    @nbupartIII
+    @ddpartIII
     Scenario: 132 gpdbrestore with --redirect option with special db name, and all table name, schema name and database name contain special character
         Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 ""
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB""
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
-        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " > /tmp/132_special_table_data.ans"
+        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql "$SP_CHAR_DB" > /tmp/132_special_table_data.ans"
 
     Scenario: 133 gpdbrestore, -S option, -S truncate option schema level restore with special chars in schema name
         Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 ""
+        When the user runs "gpcrondump -a -x "$SP_CHAR_DB""
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
-        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " > /tmp/133_special_table_data.ans"
-
-    Scenario: 134 gpdbrestore, --noplan option with special chars in database name, schema name, and table name
-        Given the backup test is initialized for special characters
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 ""
-        Then gpcrondump should return a return code of 0
-        Given the user runs "psql -f test/behave/mgmt_utils/steps/data/special_chars/insert_into_special_ao_table.sql template1"
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " --incremental"
-        Then gpcrondump should return a return code of 0
-        And the timestamp from gpcrondump is stored
-        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_ao_table.sql " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 " > /tmp/134_special_ao_table_data.ans"
-
-    Scenario: 135 Gpdbrestore, --change-schema option does not work with -S schema level restore option
-        Given the backup test is initialized for special characters
-        And the user runs "psql -f test/behave/mgmt_utils/steps/data/special_chars/create_special_database.sql template1"
-        And the user runs "psql -f test/behave/mgmt_utils/steps/data/special_chars/create_special_schema.sql template1"
-        And the user runs "psql -f test/behave/mgmt_utils/steps/data/special_chars/create_special_table.sql template1"
-        When the user runs command "gpcrondump -a -x " DB\`~@#\$%^&*()_-+[{]}|\\;: \\'/?><;1 ""
-        Then gpcrondump should return a return code of 0
-        And the timestamp from gpcrondump is stored
+        When the user runs command "psql -f test/behave/mgmt_utils/steps/data/special_chars/select_from_special_table.sql "$SP_CHAR_DB" > /tmp/133_special_table_data.ans"
 
     @skip_for_gpdb_43
     Scenario: 136 Backup and restore CAST, with associated function in restored schema, base_file_name=dump_func_name
@@ -1828,7 +1914,7 @@ Feature: Validate command line arguments
         # change guc to non-default for just current session and create session_guc_table
         And the user runs "psql bkdb141 -f test/behave/mgmt_utils/steps/data/gpcrondump/guc_session_only.sql"
         # backup and restore
-        When the user runs command "gpcrondump -a -x bkdb141"
+        When the user runs "gpcrondump -a -x bkdb141"
         Then gpcrondump should return a return code of 0
         And the timestamp from gpcrondump is stored
 
@@ -1863,6 +1949,7 @@ Feature: Validate command line arguments
         And the timestamp from gpcrondump is stored
         And all the data from "bkdb144" is saved for verification
 
+    @nbupartIII
     Scenario: 145 gpcrondump with -u and --prefix option
         Given the backup test is initialized with database "bkdb145"
         And the prefix "foo" is stored

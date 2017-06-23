@@ -15,39 +15,63 @@ ifneq (${ENV_JAVA_HOME},)
 	JAVA_HOME=${ENV_JAVA_HOME}
 endif
 
-all: mkgphdfs mkgpcloud
+.PHONY: all install clean distclean installcheck mapreduce gpcloud mkgphdfs mkorafce
 
-.PHONY:
+#
+# targets built via top_builddir/GNUmakefile
+#
+
+all: mapreduce gpcloud
+
 mapreduce:
 	@if [ "$(enable_mapreduce)" = "yes" ]; then \
 		echo "gpmapreduce enabled"; \
 		$(MAKE) -C gpmapreduce; \
 	fi
 
-install: mapreduce
+gpcloud:
+	@if [ "$(enable_gpcloud)" = "yes" ]; then \
+		echo "gpcloud enabled"; \
+		$(MAKE) -C gpcloud; \
+		$(MAKE) -C gpcloud/bin/gpcheckcloud; \
+	fi
+
+install:
 	@if [ "$(enable_mapreduce)" = "yes" ]; then \
 		$(MAKE) -C gpmapreduce install; \
+	fi
+	@if [ "$(enable_gpcloud)" = "yes" ]; then \
+		$(MAKE) -C gpcloud install; \
+		$(MAKE) -C gpcloud/bin/gpcheckcloud install; \
 	fi
 
 clean:
 	if [ "$(enable_mapreduce)" = "yes" ]; then $(MAKE) -C gpmapreduce clean; fi
-
+	if [ "$(enable_gpcloud)" = "yes" ]; then $(MAKE) -C gpcloud clean; fi
 
 distclean:
 	if [ "$(enable_mapreduce)" = "yes" ]; then $(MAKE) -C gpmapreduce distclean; fi
+	if [ "$(enable_gpcloud)" = "yes" ]; then $(MAKE) -C gpcloud distclean; fi
 
-.PHONY:
+installcheck:
+	if [ -d "$(ext_dir)" ]; then \
+		PATH=$(INSTLOC)/bin:$(PATH) $(MAKE) -C orafce installcheck USE_PGXS=1 && \
+		PATH=$(INSTLOC)/bin:$(PATH) $(MAKE) -C gphdfs installcheck USE_PGXS=1 ; \
+	fi; \
+	if [ "$(enable_mapreduce)" = "yes" ]; then \
+		$(MAKE) -C gpmapreduce installcheck; \
+	fi
+
+#
+# below targets will be built via top_builddir/gpAux/Makefile
+#
+
 mkgphdfs:
 	PATH=$(INSTLOC)/bin:$(PATH) $(MAKE) -C gphdfs USE_PGXS=1 docdir=$(INSTLOC)/docs install \
 		ANT=/opt/releng/apache-ant/bin/ant \
 		JAVA_HOME=${JAVA_HOME}
 
-.PHONY:
-mkgpcloud:
-	PATH=$(INSTLOC)/bin:$(PATH) $(MAKE) -C gpcloud USE_PGXS=1 install
-	PATH=$(INSTLOC)/bin:$(PATH) $(MAKE) -C gpcloud/bin/gpcheckcloud USE_PGXS=1 install
-
-# Only include include these files when running enterprise build
+# Only include these files when running enterprise build
 ENTERPRISE_TARGETS="mkgphdfs mkorafce"
 ifneq ($(findstring $(MAKECMDGOALS), $(ENTERPRISE_TARGETS)),)
 include $(BLD_TOP)/Makefile.global
@@ -77,13 +101,5 @@ JAVAH=${JAVA_HOME}/bin/javah
 JAR=${JAVA_HOME}/bin/jar
 JAVADOC=${JAVA_HOME}/bin/javadoc
 
-
-.PHONY:
 mkorafce:
 	PATH=$(INSTLOC)/bin:$(PATH) $(MAKE) -C orafce install USE_PGXS=1
-
-installcheck:
-	if [ -d "$(ext_dir)" ]; then \
-		PATH=$(INSTLOC)/bin:$(PATH) $(MAKE) -C orafce installcheck USE_PGXS=1 && \
-		PATH=$(INSTLOC)/bin:$(PATH) $(MAKE) -C gphdfs installcheck USE_PGXS=1 ; \
-	fi

@@ -180,8 +180,7 @@ calc_hash_value(AggState* aggstate, TupleTableSlot *inputslot)
  */
 static inline void
 adjustInputGroup(AggState *aggstate, 
-				 void *input_group,
-				 MemTupleBinding *mt_bind)
+				 void *input_group)
 {
 	int32 tuple_size;
 	void *datum;
@@ -189,7 +188,7 @@ adjustInputGroup(AggState *aggstate,
 	AggStatePerAgg peragg = aggstate->peragg;
 	int aggno;
 	
-	tuple_size = memtuple_get_size((MemTuple)input_group, mt_bind);
+	tuple_size = memtuple_get_size((MemTuple)input_group);
 	pergroup = (AggStatePerGroup) ((char *)input_group +
 								   MAXALIGN(tuple_size));
 	Assert(pergroup != NULL);
@@ -324,7 +323,6 @@ makeHashAggEntryForGroup(AggState *aggstate, void *tuple_and_aggs,
 {
 	HashAggEntry *entry;
 	HashAggTable *hashtable = aggstate->hhashtable;
-	MemTupleBinding *mt_bind = aggstate->hashslot->tts_mt_bind;
 	void *copy_tuple_and_aggs;
 
 	MemoryContext oldcxt;
@@ -344,7 +342,7 @@ makeHashAggEntryForGroup(AggState *aggstate, void *tuple_and_aggs,
 	entry->next = NULL;
 
 	/* Initialize per group data */
-	adjustInputGroup(aggstate, entry->tuple_and_aggs, mt_bind);
+	adjustInputGroup(aggstate, entry->tuple_and_aggs);
 
 	MemoryContextSwitchTo(oldcxt);
 
@@ -358,13 +356,11 @@ makeHashAggEntryForGroup(AggState *aggstate, void *tuple_and_aggs,
  * in the given hash entry.
  */
 static inline void
-setGroupAggs(HashAggTable *hashtable, MemTupleBinding *mt_bind, HashAggEntry *entry)
+setGroupAggs(HashAggTable *hashtable, HashAggEntry *entry)
 {
-	Assert(mt_bind != NULL);
-	
 	if (entry != NULL)
 	{
-		int tup_len = memtuple_get_size((MemTuple)entry->tuple_and_aggs, mt_bind);
+		int tup_len = memtuple_get_size((MemTuple)entry->tuple_and_aggs);
 		hashtable->groupaggs->tuple = (MemTuple)entry->tuple_and_aggs;
 		hashtable->groupaggs->aggs = (AggStatePerGroup)
 			((char *)entry->tuple_and_aggs + MAXALIGN(tup_len));
@@ -552,7 +548,7 @@ calcHashAggTableSizes(double memquota,	/* Memory quota in bytes. */
 	Assert(ngroups >= 0);
 
 	/* Estimate the overhead per entry in the hash table */
-	entrysize = entrywidth + OVERHEAD_PER_BUCKET / gp_hashagg_groups_per_bucket;
+	entrysize = entrywidth + OVERHEAD_PER_BUCKET / (double) gp_hashagg_groups_per_bucket;
 
 	elog(HHA_MSG_LVL, "HashAgg: ngroups = %g, memquota = %g, entrysize = %g",
 		 ngroups, memquota, entrysize);
@@ -834,7 +830,6 @@ agg_hash_initial_pass(AggState *aggstate)
 	TupleTableSlot *outerslot = NULL;
 	bool streaming = ((Agg *) aggstate->ss.ps.plan)->streaming;
 	bool tuple_remaining = true;
-	MemTupleBinding *mt_bind = aggstate->hashslot->tts_mt_bind;
 
 	Assert(hashtable);
 	AssertImply(!streaming, aggstate->hashaggstatus == HASHAGG_BEFORE_FIRST_PASS);
@@ -873,7 +868,7 @@ agg_hash_initial_pass(AggState *aggstate)
 			break;
 		}
 
-		Gpmon_M_Incr(GpmonPktFromAggState(aggstate), GPMON_QEXEC_M_ROWSIN);
+		Gpmon_Incr_Rows_In(GpmonPktFromAggState(aggstate));
 
 		if (aggstate->hashslot->tts_tupleDescriptor == NULL)
 		{
@@ -882,7 +877,6 @@ agg_hash_initial_pass(AggState *aggstate)
 			/* Initialize hashslot by cloning input slot. */
 			ExecSetSlotDescriptor(aggstate->hashslot, outerslot->tts_tupleDescriptor); 
 			ExecStoreAllNullTuple(aggstate->hashslot);
-			mt_bind = aggstate->hashslot->tts_mt_bind;
 
 			size = ((Agg *)aggstate->ss.ps.plan)->numCols * sizeof(HashKey);
 			
@@ -933,11 +927,11 @@ agg_hash_initial_pass(AggState *aggstate)
 										  INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
 		}
 
-		setGroupAggs(hashtable, mt_bind, entry);
+		setGroupAggs(hashtable, entry);
 		
 		if (isNew)
 		{
-			int tup_len = memtuple_get_size((MemTuple)entry->tuple_and_aggs, mt_bind);
+			int tup_len = memtuple_get_size((MemTuple)entry->tuple_and_aggs);
 			MemSet((char *)entry->tuple_and_aggs + MAXALIGN(tup_len), 0,
 				   aggstate->numaggs * sizeof(AggStatePerGroupData));
 			initialize_aggregates(aggstate, aggstate->peragg, hashtable->groupaggs->aggs,
@@ -1320,9 +1314,6 @@ spill_hash_table(AggState *aggstate)
 
 			hashtable->num_batches++;
 			
-			Gpmon_M_Incr(GpmonPktFromAggState(aggstate), GPMON_AGG_SPILLBATCH);
-			Gpmon_M_Incr(GpmonPktFromAggState(aggstate), GPMON_AGG_CURRSPILLPASS_BATCH);
-			
 			CheckSendPlanStateGpmonPkt(&aggstate->ss.ps);
 		}
 
@@ -1349,12 +1340,6 @@ spill_hash_table(AggState *aggstate)
 					spill_file->file_info->total_bytes += written_bytes;
 
 					hashtable->num_spill_groups++;
-
-					Gpmon_M_Incr(GpmonPktFromAggState(aggstate), GPMON_AGG_SPILLTUPLE);
-					Gpmon_M_Add(GpmonPktFromAggState(aggstate), GPMON_AGG_SPILLBYTE, written_bytes);
-
-					Gpmon_M_Incr(GpmonPktFromAggState(aggstate), GPMON_AGG_CURRSPILLPASS_TUPLE);
-					Gpmon_M_Add(GpmonPktFromAggState(aggstate), GPMON_AGG_CURRSPILLPASS_BYTE, written_bytes);
 				}
 			}
 
@@ -1469,7 +1454,6 @@ static int32
 writeHashEntry(AggState *aggstate, BatchFileInfo *file_info,
 			   HashAggEntry *entry)
 {
-	MemTupleBinding *mt_bind = aggstate->hashslot->tts_mt_bind;
 	int32 tuple_agg_size = 0;
 	int32 total_size = 0;
 	AggStatePerGroup pergroup;
@@ -1481,7 +1465,7 @@ writeHashEntry(AggState *aggstate, BatchFileInfo *file_info,
 
 	ExecWorkFile_Write(file_info->wfile, (void *)(&(entry->hashvalue)), sizeof(entry->hashvalue));
 
-	tuple_agg_size = memtuple_get_size((MemTuple)entry->tuple_and_aggs, mt_bind);
+	tuple_agg_size = memtuple_get_size((MemTuple)entry->tuple_and_aggs);
 	pergroup = (AggStatePerGroup) ((char *)entry->tuple_and_aggs + MAXALIGN(tuple_agg_size));
 	tuple_agg_size = MAXALIGN(tuple_agg_size) +
 		aggstate->numaggs * sizeof(AggStatePerGroupData);
@@ -1705,7 +1689,6 @@ static bool
 agg_hash_reload(AggState *aggstate)
 {
 	HashAggTable *hashtable = aggstate->hhashtable;
-	MemTupleBinding *mt_bind = aggstate->hashslot->tts_mt_bind;
 	ExprContext *tmpcontext = aggstate->tmpcontext; /* per input tuple context */
 	bool has_tuples = false;
 	SpillFile *spill_file = hashtable->curr_spill_file;
@@ -1733,8 +1716,7 @@ agg_hash_reload(AggState *aggstate)
 		(unsigned) LOG2(spill_file->parent_spill_set->num_spill_files);
 
 
-	if (spill_file->file_info != NULL &&
-		spill_file->file_info->wfile != NULL)
+	if (spill_file->file_info->wfile != NULL)
 	{
 		ExecWorkFile_Restart(spill_file->file_info->wfile);
 		hashtable->mem_for_metadata  += FREEABLE_BATCHFILE_METADATA;
@@ -1757,9 +1739,6 @@ agg_hash_reload(AggState *aggstate)
 			Assert((hashkey >> spill_file->batch_hash_bit) %
 				   spill_file->parent_spill_set->num_spill_files == 
 				   spill_file->index_in_parent);
-
-			Gpmon_M_Incr(GpmonPktFromAggState(aggstate), GPMON_AGG_CURRSPILLPASS_READTUPLE);
-			Gpmon_M_Add(GpmonPktFromAggState(aggstate), GPMON_AGG_CURRSPILLPASS_READBYTE, input_size);
 		}
 
 		else
@@ -1807,11 +1786,11 @@ agg_hash_reload(AggState *aggstate)
 		{
 			int aggno;
 			AggStatePerGroup input_pergroupstate = (AggStatePerGroup)
-				((char *)input + MAXALIGN(memtuple_get_size((MemTuple) input, mt_bind)));
+				((char *)input + MAXALIGN(memtuple_get_size((MemTuple) input)));
 
-			setGroupAggs(hashtable, mt_bind, entry);
+			setGroupAggs(hashtable, entry);
 
-			adjustInputGroup(aggstate, input, mt_bind);
+			adjustInputGroup(aggstate, input);
 			
 			/* Advance the aggregates for the group by applying preliminary function. */
 			for (aggno = 0; aggno < aggstate->numaggs; aggno++)
@@ -2133,17 +2112,6 @@ agg_hash_explain(AggState *aggstate)
 static void
 Gpmon_ResetAggHashTable(AggState* aggstate)
 {
-	Gpmon_M_Incr(GpmonPktFromAggState(aggstate), GPMON_AGG_SPILLPASS);
-	/* Reset current pass read tuples must be before current pass spill tuples */
-	Gpmon_M_Reset(GpmonPktFromAggState(aggstate),
-			GPMON_AGG_CURRSPILLPASS_READTUPLE);
-	Gpmon_M_Reset(GpmonPktFromAggState(aggstate),
-			GPMON_AGG_CURRSPILLPASS_READBYTE);
-	Gpmon_M_Reset(GpmonPktFromAggState(aggstate),
-			GPMON_AGG_CURRSPILLPASS_TUPLE);
-	Gpmon_M_Reset(GpmonPktFromAggState(aggstate), GPMON_AGG_CURRSPILLPASS_BYTE);
-	Gpmon_M_Reset(GpmonPktFromAggState(aggstate),
-			GPMON_AGG_CURRSPILLPASS_BATCH);
 	CheckSendPlanStateGpmonPkt(&aggstate->ss.ps);
 }
 

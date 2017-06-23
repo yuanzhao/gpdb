@@ -112,11 +112,11 @@
         partition elimination. Check the explain plan for queries to make sure that partitions are
         eliminated. See <xref href="../query/topics/query-profiling.xml#topic39"/> for more about
         partition elimination.</p>
-      <p>Be very careful with multi-level partitioning because the number of partition files can
-        grow very quickly. For example, if a table is partitioned by both day and city, and there
-        are 1,000 days of data and 1,000 cities, the total number of partitions is one million.
-        Column-oriented tables store each column in a physical table, so if this table has 100
-        columns, the system would be required to manage 100 million files for the table. </p>
+      <note type="warning">Be very careful with multi-level partitioning because the number of
+        partition files can grow very quickly. For example, if a table is partitioned by both day and
+        city, and there are 1,000 days of data and 1,000 cities, the total number of partitions is one
+        million. Column-oriented tables store each column in a physical table, so if this table has
+        100 columns, the system would be required to manage 100 million files for the table.</note>
       <p>Before settling on a multi-level partitioning strategy, consider a single level partition
         with bitmap indexes. Indexes slow down data loads, so performance testing with your data and
         schema is recommended to decide on the best strategy. </p>
@@ -336,10 +336,10 @@ GRANT SELECT ON sales TO guest;
           enforced only on the parts of the partitioned table, not on the partitioned table as a
           whole.</p>
         <p>GPORCA, the Greenplum next generation query optimizer, supports uniform multi-level
-          partitioned tables. If GPORCA is enabled and the multi-level partitioned table is not
-          uniform, Greenplum Database executes queries against the table with the legacy query
-          optimizer. For information about uniform multi-level partitioned tables, see <xref
-            href="../query/topics/query-piv-uniform-part-tbl.xml#topic1"/>.</p>
+          partitioned tables. If GPORCA is enabled (the default) and the multi-level partitioned
+          table is not uniform, Greenplum Database executes queries against the table with the
+          legacy query optimizer. For information about uniform multi-level partitioned tables, see
+            <xref href="../query/topics/query-piv-uniform-part-tbl.xml#topic1"/>.</p>
         <p>Exchanging a leaf child partition with an external table is not supported if the
           partitioned table is created with the <codeph>SUBPARTITION</codeph> clause or if a
           partition has a subpartition. For information about exchanging a leaf child partition with
@@ -798,7 +798,7 @@ INTO (PARTITION jan09, default partition);
       <title>Exchanging a Leaf Child Partition with an External Table</title>
       <body>
         <p>You can exchange a leaf child partition of a partitioned table with a readable external
-          table.The external table data can reside on a host file system, an NFS mount, or a Hadoop
+          table. The external table data can reside on a host file system, an NFS mount, or a Hadoop
           file system (HDFS).</p>
         <p>For example, if you have a partitioned table that is created with monthly partitions and
           most of the queries against the table only access the newer data, you can copy the older,

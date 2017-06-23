@@ -1197,7 +1197,19 @@ CTranslatorRelcacheToDXL::PmdindexPartTable
 		pdrgpulKeyCols->Append(GPOS_NEW(pmp) ULONG(UlPosition(iAttno, pulAttrMap)));
 	}
 	
+	/*
+	 * If an index exists only on a leaf part, pnodePartCnstr refers to the expression
+	 * identifying the path to reach the partition holding the index. For indexes
+	 * available on all parts it is set to NULL.
+	 */
 	Node *pnodePartCnstr = pidxinfo->partCons;
+	
+	/*
+	 * If an index exists all on the parts including default, the logical index
+	 * info created marks defaultLevels as NIL. However, if an index exists only on
+	 * leaf parts plDefaultLevel contains the default part level which come across while
+	 * reaching to the leaf part from root.
+	 */
 	List *plDefaultLevels = pidxinfo->defaultLevels;
 	
 	// get number of partitioning levels
@@ -1205,7 +1217,10 @@ CTranslatorRelcacheToDXL::PmdindexPartTable
 	const ULONG ulLevels = gpdb::UlListLength(plPartKeys);
 	gpdb::FreeList(plPartKeys);
 
-	// get relation constraints
+	/* get relation constraints
+	 * plDefaultLevelsRel indicates the levels on which default partitions exists
+	 * for the partitioned table
+	 */
 	List *plDefaultLevelsRel = NIL;
 	Node *pnodePartCnstrRel = gpdb::PnodePartConstraintRel(oidRel, &plDefaultLevelsRel);
 
@@ -1215,14 +1230,28 @@ CTranslatorRelcacheToDXL::PmdindexPartTable
 		fUnbounded = fUnbounded && FDefaultPartition(plDefaultLevelsRel, ul);
 	}
 
+	/*
+	 * If pnodePartCnstr is NULL and plDefaultLevels is NIL,
+	 * it indicates that the index is available on all the parts including
+	 * default part. So, we can say that levels on which default partitions
+	 * exists for the relation applies to the index as well and the relative
+	 * scan will not be partial.
+	 */
+	List *plDefaultLevelsDerived = NIL;
+	if (NULL == pnodePartCnstr && NIL == plDefaultLevels)
+		plDefaultLevelsDerived = plDefaultLevelsRel;
+	else
+		plDefaultLevelsDerived = plDefaultLevels;
+	
 	DrgPul *pdrgpulDefaultLevels = GPOS_NEW(pmp) DrgPul(pmp);
 	for (ULONG ul = 0; ul < ulLevels; ul++)
 	{
-		if (fUnbounded || FDefaultPartition(plDefaultLevels, ul))
+		if (fUnbounded || FDefaultPartition(plDefaultLevelsDerived, ul))
 		{
 			pdrgpulDefaultLevels->Append(GPOS_NEW(pmp) ULONG(ul));
 		}
 	}
+	gpdb::FreeList(plDefaultLevelsDerived);
 
 	BOOL fPartial = (NULL != pnodePartCnstr || NIL != plDefaultLevels);
 
@@ -2337,32 +2366,42 @@ CTranslatorRelcacheToDXL::PimdobjColStats
 					&pdrgdatumHistValues, &iNumHistValues,
 					NULL, NULL);
 
-	// transform all the bits and pieces from pg_statistic
-	// to a single bucket structure
-	DrgPdxlbucket *pdrgpdxlbucketTransformed =
-			PdrgpdxlbucketTransformStats
-					(
-					pmp,
-					oidAttType,
-					dDistinct,
-					dNullFrequency,
-					pdrgdatumMCVValues,
-					pdrgfMCVFrequencies,
-					ULONG(iNumMCVValues),
-					pdrgdatumHistValues,
-					ULONG(iNumHistValues)
-					);
-
-	GPOS_ASSERT(NULL != pdrgpdxlbucketTransformed);
-
 	CDouble dNDVBuckets(0.0);
 	CDouble dFreqBuckets(0.0);
-	const ULONG ulBuckets = pdrgpdxlbucketTransformed->UlLength();
-	for (ULONG ul = 0; ul < ulBuckets; ul++)
+
+	// We only want to create statistics buckets if the column is NOT a text, varchar, char or bpchar type
+	// For the above column types we will use NDVRemain and NullFreq to do cardinality estimation.
+
+	if (CTranslatorUtils::FCreateStatsBucket(oidAttType))
 	{
-	   CDXLBucket *pdxlbucket = (*pdrgpdxlbucketTransformed)[ul];
-	   dNDVBuckets = dNDVBuckets + pdxlbucket->DDistinct();
-	   dFreqBuckets = dFreqBuckets + pdxlbucket->DFrequency();
+		// transform all the bits and pieces from pg_statistic
+		// to a single bucket structure
+		DrgPdxlbucket *pdrgpdxlbucketTransformed =
+		PdrgpdxlbucketTransformStats
+		(
+		 pmp,
+		 oidAttType,
+		 dDistinct,
+		 dNullFrequency,
+		 pdrgdatumMCVValues,
+		 pdrgfMCVFrequencies,
+		 ULONG(iNumMCVValues),
+		 pdrgdatumHistValues,
+		 ULONG(iNumHistValues)
+		 );
+
+		GPOS_ASSERT(NULL != pdrgpdxlbucketTransformed);
+
+		const ULONG ulBuckets = pdrgpdxlbucketTransformed->UlLength();
+		for (ULONG ul = 0; ul < ulBuckets; ul++)
+		{
+			CDXLBucket *pdxlbucket = (*pdrgpdxlbucketTransformed)[ul];
+			dNDVBuckets = dNDVBuckets + pdxlbucket->DDistinct();
+			dFreqBuckets = dFreqBuckets + pdxlbucket->DFrequency();
+		}
+
+		CUtils::AddRefAppend(pdrgpdxlbucket, pdrgpdxlbucketTransformed);
+		pdrgpdxlbucketTransformed->Release();
 	}
 
 	// there will be remaining tuples if the merged histogram and the NULLS do not cover
@@ -2377,15 +2416,11 @@ CTranslatorRelcacheToDXL::PimdobjColStats
  		dFreqRemain = std::max(CDouble(0.0), (1 - dFreqBuckets - dNullFrequency));
 	}
 
-	CUtils::AddRefAppend(pdrgpdxlbucket, pdrgpdxlbucketTransformed);
-
 	// free up allocated datum and float4 arrays
 	gpdb::FreeAttrStatsSlot(oidAttType, pdrgdatumMCVValues, iNumMCVValues, pdrgfMCVFrequencies, iNumMCVFrequencies);
 	gpdb::FreeAttrStatsSlot(oidAttType, pdrgdatumHistValues, iNumHistValues, NULL, 0);
 
 	gpdb::FreeHeapTuple(heaptupleStats);
-
-	pdrgpdxlbucketTransformed->Release();
 
 	// create col stats object
 	pmdidColStats->AddRef();

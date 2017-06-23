@@ -17,8 +17,14 @@ MODULE_big = gpcloud
 OBJS = src/gpcloud.o lib/http_parser.o lib/ini.o $(addprefix src/,$(COMMON_OBJS))
 
 # Launch
+ifdef USE_PGXS
 PGXS := $(shell pg_config --pgxs)
 include $(PGXS)
+else
+top_builddir = ../../..
+include $(top_builddir)/src/Makefile.global
+include $(top_srcdir)/contrib/contrib-global.mk
+endif
 
 gpcheckcloud:
 	@$(MAKE) -C bin/gpcheckcloud
@@ -44,10 +50,9 @@ lint:
 
 format:
 	@-[ -n "`command -v dos2unix`" ] && dos2unix -k -q src/*.cpp bin/gpcheckcloud/*.cpp test/*.cpp include/*.h
-	@-[ -n "`command -v clang-format`" ] && clang-format --version \
-		| grep -q 'clang-format version 4.0.0' \
+	@-[ -n "`command -v clang-format`" ] && clang-format --version | grep -q 'version 5.0.0' \
 		&& clang-format -style="{BasedOnStyle: Google, IndentWidth: 4, ColumnLimit: 100, AllowShortFunctionsOnASingleLine: None}" -i src/*.cpp bin/gpcheckcloud/*.cpp test/*.cpp include/*.h \
-		|| echo clang-format 4.0.0 is not found.
+		|| echo clang-format 5.0.0 is not found.
 
 cleanall:
 	@-$(MAKE) clean # incase PGXS not included

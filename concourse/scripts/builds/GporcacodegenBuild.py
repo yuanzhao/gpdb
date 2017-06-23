@@ -9,7 +9,6 @@ class GporcacodegenBuild(GpdbBuildBase):
 
     def configure(self):
         return subprocess.call(' '.join(["./configure",
-                                         "--enable-orca",
                                          "--enable-codegen",
                                          "--enable-mapreduce",
                                          "--with-perl",
@@ -26,7 +25,7 @@ class GporcacodegenBuild(GpdbBuildBase):
             return status
         status = subprocess.call([
             "runuser gpadmin -c \"source /usr/local/gpdb/greenplum_path.sh \
-            && make cluster\""], cwd="gpdb_src/gpAux/gpdemo", shell=True)
+            && make create-demo-cluster\""], cwd="gpdb_src/gpAux/gpdemo", shell=True)
         if status:
             return status
         return subprocess.call([

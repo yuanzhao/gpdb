@@ -30,7 +30,7 @@ RUN yum -y update \
                       zlib-devel
 
 RUN curl -SL https://bootstrap.pypa.io/get-pip.py | python \
-    && pip install psutil lockfile paramiko setuptools epydoc
+    && pip install psutil lockfile paramiko setuptools
 
 # compile GPDB
 
@@ -44,6 +44,7 @@ WORKDIR gpdb
 
 RUN ./configure --with-python --with-perl --enable-mapreduce \
                 --with-libxml --enable-debug --prefix=/usr/local/gpdb \
+                --disable-gpcloud \
     && time make -j4    \
     && make install     \
     && ./docker/prep_for_ssh.bash \

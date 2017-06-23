@@ -28,7 +28,7 @@ all : devel
 .PHONY : autoconf
 
 # Internal functions which are invoked by other rules within this makefile
-.PHONY : mkgpfdist copydocs mgmtcopy copylibs
+.PHONY : copydocs mgmtcopy copylibs
 .PHONY : greenplum_path RECONFIG HOMEDEP GPROOTDEP GPROOTDEP GPROOTFAIL
 .PHONY : gccVersionCheck clients loaders gppkg
 
@@ -159,23 +159,25 @@ endif
 
 APU_CONFIG=--with-apu-config=$(BLD_THIRDPARTY_BIN_DIR)/apu-1-config
 
-CODEGEN_CONFIG=--enable-codegen --with-codegen-prefix=/opt/llvm-3.7.1
-
-win32_CONFIGFLAGS=--with-gssapi --without-libcurl $(APR_CONFIG)
+win32_CONFIGFLAGS=--with-gssapi --without-libcurl --disable-orca --disable-gpcloud $(APR_CONFIG)
 sol10_x86_64_CONFIGFLAGS=--enable-snmp --with-libxml $(APR_CONFIG)
 rhel5_x86_32_CONFIGFLAGS=--host=i686-pc-linux-gnu --enable-snmp --enable-ddboost --with-gssapi --enable-netbackup --with-libxml $(APR_CONFIG)
-rhel5_x86_64_CONFIGFLAGS=--enable-snmp --enable-gpperfmon --enable-ddboost --with-gssapi --enable-netbackup ${ORCA_CONFIG} ${CODEGEN_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
-rhel6_x86_64_CONFIGFLAGS=--enable-snmp --enable-gpperfmon --enable-ddboost --with-gssapi --enable-netbackup ${ORCA_CONFIG} ${CODEGEN_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
-rhel7_x86_64_CONFIGFLAGS=--enable-snmp --enable-gpperfmon --enable-ddboost --with-gssapi --enable-netbackup ${ORCA_CONFIG} ${CODEGEN_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
-suse10_x86_64_CONFIGFLAGS=--enable-snmp --enable-ddboost --enable-gpperfmon ${ORCA_CONFIG} ${CODEGEN_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
-suse11_x86_64_CONFIGFLAGS=--enable-snmp --enable-ddboost --enable-gpperfmon ${ORCA_CONFIG} ${CODEGEN_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
-sles11_x86_64_CONFIGFLAGS=--enable-snmp --enable-ddboost --enable-gpperfmon ${ORCA_CONFIG} ${CODEGEN_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
-linux_x86_64_CONFIGFLAGS=--enable-snmp ${ORCA_CONFIG} ${CODEGEN_CONFIG} --with-libxml $(APR_CONFIG)
-osx106_x86_CONFIGFLAGS=--enable-snmp ${ORCA_CONFIG} ${CODEGEN_CONFIG} --with-libxml $(APR_CONFIG)
+rhel5_x86_64_CONFIGFLAGS=--enable-snmp --enable-gpperfmon --enable-ddboost --with-gssapi --enable-netbackup ${ORCA_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
+rhel6_x86_64_CONFIGFLAGS=--enable-snmp --enable-gpperfmon --enable-ddboost --with-gssapi --enable-netbackup --enable-mapreduce ${ORCA_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
+rhel7_x86_64_CONFIGFLAGS=--enable-snmp --enable-gpperfmon --enable-ddboost --with-gssapi --enable-netbackup --enable-mapreduce ${ORCA_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
+suse10_x86_64_CONFIGFLAGS=--enable-snmp --enable-ddboost --enable-gpperfmon --with-gssapi ${ORCA_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
+suse11_x86_64_CONFIGFLAGS=--enable-snmp --enable-ddboost --enable-gpperfmon --with-gssapi ${ORCA_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
+sles11_x86_64_CONFIGFLAGS=--enable-snmp --enable-ddboost --enable-gpperfmon --with-gssapi ${ORCA_CONFIG} --with-libxml $(APR_CONFIG) $(APU_CONFIG)
+linux_x86_64_CONFIGFLAGS=--enable-snmp ${ORCA_CONFIG} --with-libxml $(APR_CONFIG)
+osx106_x86_CONFIGFLAGS=--enable-snmp ${ORCA_CONFIG} --with-libxml $(APR_CONFIG)
 
 BLD_CONFIGFLAGS=$($(BLD_ARCH)_CONFIGFLAGS)
 
 CONFIGFLAGS=$(strip $(BLD_CONFIGFLAGS) --with-pgport=$(DEFPORT) --with-libedit-preferred $(BLD_DEPLOYMENT_SETTING))
+
+ifdef CONFIGURE_FLAGS
+CONFIGFLAGS+= $(CONFIGURE_FLAGS)
+endif
 
 # PL/Python does not compile on Tiger, skipping it on AIX
 ifneq "$(findstring $(BLD_ARCH),aix5_ppc_64 aix5_ppc_32)" ""
@@ -183,7 +185,11 @@ PG_LANG=false
 endif
 
 ifneq (false, ${PG_LANG})
+ifeq ($(BLD_ARCH), sles11_x86_64)
+CONFIGFLAGS+= --with-python
+else
 CONFIGFLAGS+= --with-perl --with-python
+endif   # ifdef sles11
 ifdef TCL_CFG
 CONFIGFLAGS+= --with-tcl-config=${TCL_CFG}
 endif
@@ -326,13 +332,10 @@ define BUILD_STEPS
 	#@$(MAKE) mgmtcopy INSTLOC=$(INSTLOC)
 	@$(MAKE) mkpgbouncer INSTLOC=$(INSTLOC) BUILDDIR=$(BUILDDIR)
 	@$(MAKE) mkpgbench INSTLOC=$(INSTLOC) BUILDDIR=$(BUILDDIR)
-	@$(MAKE) mkplatform INSTLOC=$(INSTLOC)
 	if [ "$(findstring $(BLD_ARCH),$(SERVER_PLATFORMS))" != "" ]; then \
-	  $(MAKE) mkgpcloud INSTLOC=$(INSTLOC) && \
 	  $(MAKE) mkgphdfs INSTLOC=$(INSTLOC) && \
 	  $(MAKE) mkorafce INSTLOC=$(INSTLOC);  \
 	fi
-	cd extensions/gpmapreduce/ && $(MAKE) install
 	@$(MAKE) copydocs INSTLOC=$(INSTLOC)
 	@$(MAKE) copylibs INSTLOC=$(INSTLOC)
 	@$(MAKE) clients INSTLOC=$(INSTLOC) CLIENTINSTLOC=$(CLIENTINSTLOC)
@@ -350,7 +353,6 @@ ifeq "$(BLD_GPDB_BUILDSET)" "aix_subset"
 define BUILD_STEPS
 	rm -rf $(INSTLOC)
 	cd $(BUILDDIR)/src/include/ && $(MAKE) install
-	@$(MAKE) mkgpfdist INSTLOC=$(INSTLOC)
 	@$(MAKE) mgmtcopy INSTLOC=$(INSTLOC)
 	@$(MAKE) copylibs INSTLOC=$(INSTLOC)
 	@$(MAKE) loaders INSTLOC=$(INSTLOC) LOADERSINSTLOC=$(LOADERSINSTLOC)
@@ -381,9 +383,6 @@ define BUILD_STEPS
 	cd $(BUILDDIR)/src/interfaces/ecpg/ && $(MAKE) install
 	cd $(BUILDDIR)/src/include/ && $(MAKE) install
 	cd $(BUILDDIR)/src/interfaces/libpq/ && $(MAKE) install
-	if [ "$(findstring win,$(BLD_ARCH))" != "win" ]; then \
-	  cd extensions/gpmapreduce/ && $(MAKE) install ; \
-	fi
 	cd $(BUILDDIR)/src/bin/gpfdist && $(MAKE) install
 	cp -p $(GPMGMT)/bin/gpload $(INSTLOC)/bin/gpload
 	cp -p $(GPMGMT)/bin/gpload.py $(INSTLOC)/bin/gpload.py
@@ -540,9 +539,11 @@ define tmpCLIENT_FILESET
 	pg_dumpall$(EXE_EXT)
 	psql$(EXE_EXT)
 endef
-define Unix_CLIENT_FILESET
+ifeq "$(findstring rhel,$(BLD_ARCH))" "rhel"
+define Unix_CLICENT_FILESET
 	gpmapreduce$(EXE_EXT)
 endef
+endif
 CLIENT_FILESET = $(strip $(tmpCLIENT_FILESET) $($(DOC_TYPE)_CLIENT_FILESET))
 
 # yes, the doubled gpload lines are correct
@@ -647,7 +648,6 @@ else
 ifneq "$(FILESET_LIB_GCC)" ""
 	(cd $(CLIENTINSTLOC_LIB)/ && $(TAR) cf - -C $(FILESET_LIB_GCC_LOC) $(FILESET_LIB_GCC) | $(TAR) xpf -)$(check_pipe_for_errors)
 endif
-	# ---- copy scripts fileset ----
 	mkdir -p $(CLIENTINSTLOC)
 	cp -f client/scripts/greenplum_$@_path$(SCRIPT) $(CLIENTINSTLOC)/
 
@@ -853,15 +853,8 @@ set_scripts_version :
 # Internal functions
 #---------------------------------------------------------------------
 
-mkgpfdist:
-	@cd extensions && $(MAKE) mkgpfdist OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
-	cp -p extensions/gpfdist/gpfdist$(EXE_EXT) $(INSTLOC)/bin/
-
 mkgphdfs:
 	@cd extensions && $(MAKE) mkgphdfs OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
-
-mkgpcloud:
-	@cd extensions && $(MAKE) mkgpcloud OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
 
 mkorafce:
 	@cd extensions && $(MAKE) mkorafce OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
@@ -877,11 +870,6 @@ else
 	@cd extensions/pgbouncer/source && ./configure --with-libevent=$(BLD_TOP)/ext/$(BLD_ARCH) --prefix=$(INSTLOC) --enable-evdns
 	$(MAKE) -C extensions/pgbouncer/source install
 endif
-
-mkplatform:
-	@cd $(PLATFORM) && $(MAKE)
-	cp -p platform/gpnetbench/gpnetbenchServer $(INSTLOC)/bin/lib
-	cp -p platform/gpnetbench/gpnetbenchClient $(INSTLOC)/bin/lib
 
 copydocs :
 	@if [ ! -d $($INSTLOC)/docs ] ; then mkdir -p $(INSTLOC)/docs; fi
@@ -949,11 +937,7 @@ copy-nbu-libs:
 	#Copy NetBackup libs
 ifeq ($(BLD_ARCH),$(filter $(BLD_ARCH),rhel7_x86_64 rhel6_x86_64 rhel5_x86_64))
 	rm -f $(INSTLOC)/lib/libxbsa64.so;
-	rm -f $(INSTLOC)/lib/libnbclientcST.so;
-	rm -f $(INSTLOC)/lib/libnbbasecST.so;
-	rm -f $(INSTLOC)/lib/libvxcPBXST.so;
-	cp -fpr $(BLD_THIRDPARTY_LIB_DIR)/../Netbackup/nbu71 $(INSTLOC)/lib/;
-	cp -fpr $(BLD_THIRDPARTY_LIB_DIR)/../Netbackup/nbu75 $(INSTLOC)/lib/;
+	cp -fpr $(BLD_THIRDPARTY_LIB_DIR)/../Netbackup/nbu77 $(INSTLOC)/lib/;
 endif
 
 copylibs : thirdparty-dist copy-nbu-libs

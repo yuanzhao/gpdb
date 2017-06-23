@@ -35,7 +35,6 @@
 void update_mmonlog_filename(void);
 int gpmmon_quantum(void);
 void incremement_tail_bytes(apr_uint64_t);
-int is_gpdb_appliance(void);
 time_t compute_next_dump_to_file(void);
 void populate_smdw_aliases(host_t*);
 char* get_ip_for_host(char*, bool*);
@@ -91,7 +90,6 @@ int verbose = 0; /* == opt.v */
 int very_verbose = 0; /* == opt.V */
 int quantum = 15; /* == opt.q */
 int min_query_time = 60; /* == opt.m */
-int min_detailed_query_time = 60; /* == opt.d */
 
 /* thread handles */
 static apr_thread_t* conm_th = NULL;
@@ -104,11 +102,7 @@ apr_queue_t* message_queue = NULL;
 sigset_t unblocksig;
 sigset_t blocksig;
 
-/* Temporary global memory to store the qexec line upon a receive until it is copied into a mmon_qexec_t struct; only use in main receive thread*/
-char	qexec_mmon_temp_line[QEXEC_MAX_ROW_BUF_SIZE];
-
 extern int gpdb_exec_search_for_at_least_one_row(const char* QUERY, PGconn* persistant_conn);
-
 
 /* Function defs */
 static int read_conf_file(char *conffile);
@@ -136,8 +130,6 @@ void update_mmonlog_filename()
 			tm->tm_min,
 			tm->tm_sec);
 }
-
-char gpdb_appliance_version[MAXPATHLEN];
 
 /** Gets quantum */
 int gpmmon_quantum(void)
@@ -615,13 +607,6 @@ static void* conm_main(apr_thread_t* thread_, void* arg_)
 						ptr_smon_log_location_suffix = gpperfmon_string;
 					}
 
-					const char *ignore_qexec_packet_opt = "";
-					if (opt.ignore_qexec_packet)
-					{
-						ignore_qexec_packet_opt = "-i";
-					}
-					ignore_qexec_packet = opt.ignore_qexec_packet;
-
 					const int kill_cmd_size = 1024;
 					char kill_gpsmon[kill_cmd_size];
 					memset(kill_gpsmon, 0, kill_cmd_size);
@@ -636,14 +621,13 @@ static void* conm_main(apr_thread_t* thread_, void* arg_)
 
 					if (h->smon_bin_location) { //if this if filled, then use it as the directory for smon istead of the default
 						snprintf(line, line_size, "ssh -v -o 'BatchMode yes' -o 'StrictHostKeyChecking no'"
-								" %s '%s echo -e \"%" APR_INT64_T_FMT "\\n\\n\" | %s -m %" FMT64 " %s -t %" FMT64 " -l %s%s -v %d %s%d' 2>&1",
-								active_hostname, kill_gpsmon, ax.signature, h->smon_bin_location, opt.max_log_size, ignore_qexec_packet_opt, smon_terminate_timeout, ptr_smon_log_location, ptr_smon_log_location_suffix, opt.v,
-								((opt.iterator_aggregate)?"-a ":""), ax.port);
+								" %s '%s echo -e \"%" APR_INT64_T_FMT "\\n\\n\" | %s -m %" FMT64 " -t %" FMT64 " -l %s%s -v %d %d' 2>&1",
+								active_hostname, kill_gpsmon, ax.signature, h->smon_bin_location, opt.max_log_size, smon_terminate_timeout, ptr_smon_log_location, ptr_smon_log_location_suffix, opt.v, ax.port);
 					} else {
 						snprintf(line, line_size, "ssh -v -o 'BatchMode yes' -o 'StrictHostKeyChecking no'"
-								" %s '%s echo -e \"%" APR_INT64_T_FMT "\\n\\n\" | %s/bin/gpsmon -m %" FMT64 " %s -t %" FMT64 " -l %s%s -v %d %s%d' 2>&1",
-								active_hostname, kill_gpsmon, ax.signature, ax.gphome, opt.max_log_size, ignore_qexec_packet_opt, smon_terminate_timeout, ptr_smon_log_location, ptr_smon_log_location_suffix, opt.v,
-								((opt.iterator_aggregate)?"-a ":""), ax.port);
+								" %s '%s echo -e \"%" APR_INT64_T_FMT "\\n\\n\" | %s/bin/gpsmon -m %" FMT64 " -t %" FMT64 " -l %s%s -v %d %d' 2>&1",
+								active_hostname, kill_gpsmon, ax.signature, ax.gphome, opt.max_log_size, smon_terminate_timeout, ptr_smon_log_location, ptr_smon_log_location_suffix, opt.v, ax.port);
+
 					}
 
 					if (h->ever_connected)
@@ -760,11 +744,6 @@ static void* harvest_main(apr_thread_t* thread_, void* arg_)
 
 	gpdb_check_partitions(&opt);
 
-	if (opt.iterator_aggregate)
-	{
-		remove_segid_constraint();
-	}
-
 	for (loop = 1; !ax.exit; loop++)
 	{
 		apr_sleep(apr_time_from_sec(1));
@@ -863,7 +842,6 @@ static void* message_main(apr_thread_t* thread_, void* arg_)
 {
 	apr_queue_t *queue = arg_;
 	void *query = NULL;
-	char *query_str = NULL;
 	apr_status_t status;
 
 	TR2(("In message_main: error_disk_space_percentage = %d, warning_disk_space_percentage = %d, disk_space_interval = %d, max_disk_space_messages_per_interval = %d\n",
@@ -889,38 +867,15 @@ static void* message_main(apr_thread_t* thread_, void* arg_)
 		}
 		else
 		{ // send the message
-			query_str = query; // have to do this because we still build on SUN!!!
-			if (!gpdb_exec_search_for_at_least_one_row((const char *)query_str, NULL))
+			if (!gpdb_exec_search_for_at_least_one_row((const char *)query, NULL))
 			{
-				TR0(("message_main ERROR: query %s failed. Cannot send message\n", query_str));
+				TR0(("message_main ERROR: query %s failed. Cannot send message\n", query));
 			}
 			free(query);
 		}
 
 	}
 	return APR_SUCCESS;
-}
-
-int is_gpdb_appliance()
-{
-	FILE* fd = fopen(PATH_TO_APPLIANCE_VERSION_FILE, "r");
-	if (fd)
-	{
-		char buffer[MAXPATHLEN+1];
-		buffer[0] = 0;
-		if (!fgets(buffer, 1024, fd))
-		{
-			strncpy(gpdb_appliance_version, buffer, MAXPATHLEN);
-			buffer[MAXPATHLEN] = 0;
-		}
-
-		fclose(fd);
-		return 1;
-	}
-	else
-	{
-		return 0;
-	}
 }
 
 time_t compute_next_dump_to_file()
@@ -1181,15 +1136,13 @@ static int read_conf_file(char *conffile)
 	int section = 0, section_found = 0;
 
 	opt.q = quantum;
-	opt.m = min_query_time;
-	opt.d = min_detailed_query_time;
+	opt.min_query_time = min_query_time;
 	opt.harvest_interval = 120;
 	opt.max_log_size = 0;
 	opt.log_dir = strdup(DEFAULT_GPMMON_LOGDIR);
 	opt.max_disk_space_messages_per_interval = MAX_MESSAGES_PER_INTERVAL;
 	opt.disk_space_interval = (60*MINIMUM_MESSAGE_INTERVAL);
 	opt.partition_age = 0;
-	opt.ignore_qexec_packet = true;
 
 	if (!fp)
 	{
@@ -1241,17 +1194,9 @@ static int read_conf_file(char *conffile)
 			{
 				opt.harvest_interval = atoi(pVal);
 			}
-			else if (apr_strnatcasecmp(pName, "health_harvest_interval") == 0)
-			{
-				opt.health_harvest_interval = atoi(pVal);
-			}
 			else if (apr_strnatcasecmp(pName, "min_query_time") == 0)
 			{
-				opt.m = atoi(pVal);
-			}
-			else if (apr_strnatcasecmp(pName, "min_detailed_query_time") == 0)
-			{
-				opt.d = atoi(pVal);
+				opt.min_query_time = atoi(pVal);
 			}
 			else if (apr_strnatcasecmp(pName, "verbose") == 0)
 			{
@@ -1328,29 +1273,9 @@ static int read_conf_file(char *conffile)
 			{
 				opt.max_disk_space_messages_per_interval = atoi(pVal);
 			}
-			else if (apr_strnatcasecmp(pName, "iterator_aggregate") == 0)
-			{
-				opt.iterator_aggregate = atoi(pVal);
-			}
 			else if (apr_strnatcasecmp(pName, "partition_age") == 0)
 			{
 				opt.partition_age = atoi(pVal);
-			}
-			else if (apr_strnatcasecmp(pName, "ignore_qexec_packet") == 0)
-			{
-				if (apr_strnatcasecmp(pVal, "true") == 0)
-				{
-					opt.ignore_qexec_packet = true;
-				}
-				else if (apr_strnatcasecmp(pVal, "false") == 0)
-				{
-					opt.ignore_qexec_packet = false;
-				}
-				else
-				{
-					fprintf(stderr, "value of ignore_qexec_packet should be true"
-							" or false, but %s found\n", pVal);
-				}
 			}
 			else
 			{
@@ -1375,22 +1300,8 @@ static int read_conf_file(char *conffile)
 		opt.q = 15;
 	}
 
-	if (opt.m < 0)
-		opt.m = 0;
-
-	if (opt.d < opt.m)
-	{
-		opt.d = opt.m;
-		fprintf(stderr, "Performance Monitor - min_detail_query_time cannot be less than min_query_time.  "
-				"Setting min_detail_query_time equal to min_query_time\n");
-	}
-
-	if (opt.d < 10 && !opt.qamode)
-	{
-		fprintf(stderr, "Performance Monitor - invalid value for min_detailed_query_time.  "
-				"Using default value 60\n");
-		opt.d = 60;
-	}
+	if (opt.min_query_time < 0)
+		opt.min_query_time = 0;
 
 	if (opt.log_dir == NULL)
 	{
@@ -1448,15 +1359,8 @@ static int read_conf_file(char *conffile)
 		opt.tail_buffer_max = (1LL << 31); /* 2GB */
 	}
 
-	if (opt.health_harvest_interval < 1)
-	{
-		// default 15 minutes
-		opt.health_harvest_interval = 15 * 60;
-	}
-
 	verbose = opt.v;
-	min_query_time = opt.m;
-	min_detailed_query_time = opt.d;
+	min_query_time = opt.min_query_time;
 	quantum = opt.q;
 
 	fclose(fp);
@@ -1555,12 +1459,6 @@ int main(int argc, const char* const argv[])
 
 	parse_command_line(argc, argv);
 
-	if ( gpdb_debug_string_lookup_table() != APR_SUCCESS)
-	{
-		interuptable_sleep(30); // sleep to prevent loop of forking process and failing
-		gpmon_fatal(FLINE, "internal consistency check failed at gpperfmon startup");
-	}
-
 	/* Set env if we got a port.  This will be picked up by libpq */
 	if (opt.gpdb_port)
 		setenv("PGPORT", opt.gpdb_port, 1);
@@ -1630,6 +1528,7 @@ int main(int argc, const char* const argv[])
 			interuptable_sleep(30); // sleep to prevent loop of forking process and failing
 			gpmon_fatal(FLINE, "\nfailed (1) to open perfmon log file %s\n", mmon_log_filename);
 		}
+		TR0(("starting mmon logging\n"));
 	}
 
 	/* check port */
@@ -1897,12 +1796,6 @@ static apr_status_t recvpkt(int sock, gp_smon_to_mmon_packet_t* pkt, bool loop_u
 		{
 			return e;
 		}
-		if (0 != (e = recv_data(sock, qexec_mmon_temp_line, pkt->u.qexec_packet.data.size_of_line)))
-		{
-			return e;
-		}
-		pkt->u.qexec_packet.line = qexec_mmon_temp_line;
-		TR2(("received qexec line size %d, %s\n", pkt->u.qexec_packet.data.size_of_line, pkt->u.qexec_packet.line));
 	}
 	else
 	{

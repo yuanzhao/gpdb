@@ -134,10 +134,12 @@ function export_gpdb_win32_ccl() {
 }
 
 function build_pgbouncer() {
-  pushd gpdb_src/gpAux/extentions/pgbouncer
-    ./configure
+  pushd gpdb_src/gpAux/extensions/pgbouncer
+    ./autogen.sh
+    ./configure --prefix=$GREENPLUM_INSTALL_DIR --with-libevent=libevent-prefix
     make; make install
   popd
+    }
 
 function _main() {
   case "$TARGET_OS" in

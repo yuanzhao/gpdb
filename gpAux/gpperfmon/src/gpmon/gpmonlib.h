@@ -35,9 +35,9 @@ extern int verbose;
 #define TR1_FILE(x) if (verbose == 1) gpmon_print_file x
 
 /* Architecture specific limits for metrics */
-#if defined(osx104_x86) || defined(osx105_x86) || defined(rhel4_x86_32) || defined(rhel5_x86_32)
+#if defined(osx104_x86) || defined(osx105_x86) || defined(rhel5_x86_32)
 	#define GPSMON_METRIC_MAX 0xffffffffUL
-#elif defined(rhel4_x86_64) || defined(rhel5_x86_64) || defined(rhel7_x86_64) || defined(rhel6_x86_64) || defined(sol10_x86_64) || defined(suse10_x86_64)
+#elif defined(rhel5_x86_64) || defined(rhel7_x86_64) || defined(rhel6_x86_64) || defined(suse10_x86_64)
 	#define GPSMON_METRIC_MAX 0xffffffffffffffffULL
 #else
 	#define GPSMON_METRIC_MAX 0xffffffffUL
@@ -80,8 +80,6 @@ extern char* gpmon_datetime_rounded(time_t t, char str[GPMON_DATE_BUF_SIZE]);
 extern apr_int32_t get_query_status(apr_int32_t tmid, apr_int32_t ssid, apr_int32_t ccnt);
 extern char *get_query_text(apr_int32_t tmid, apr_int32_t ssid, apr_int32_t ccnt, apr_pool_t *pool);
 
-#define PATH_TO_APPLIANCE_VERSION_FILE "/etc/gpdb-appliance-version"
-#define PATH_TO_APPLAINCE_DEVICES_FILE "/opt/dca/etc/healthmond/devices.cnf"
 #define DEFAULT_PATH_TO_HADOOP_HOST_FILE "/etc/gphd/gphdmgr/conf/clusterinfo.txt"
 #define PATH_TO_HADOOP_SMON_LOGS "/var/log/gphd/smon"
 
@@ -129,20 +127,16 @@ typedef struct mmon_options_t
 	int max_fd; /* this is the max fd value we ever seen */
 	int v;
 	int q;
-	int m;
-	int d;
+	int min_query_time;
 	int qamode;
 	int harvest_interval;
 	apr_uint64_t tail_buffer_max;
 	int console;
-	int health_harvest_interval;
 	int warning_disk_space_percentage;
 	int error_disk_space_percentage;
 	time_t disk_space_interval; // interval in seconds
 	unsigned int max_disk_space_messages_per_interval;
-	int iterator_aggregate;
-	int partition_age;  		// in month 
-	bool ignore_qexec_packet;
+	int partition_age;  		// in month
 } mmon_options_t;
 
 typedef struct addressinfo_holder_t addressinfo_holder_t;
@@ -209,14 +203,11 @@ typedef struct qexec_packet_data_t
 	apr_uint64_t 		rowsout;
 	apr_uint64_t		_cpu_elapsed; /* CPU elapsed for iter */
 	apr_uint64_t 		measures_rows_in;
-	apr_uint16_t		size_of_line; //the size of the string plus the null terminator
 } qexec_packet_data_t;
 
 typedef struct qexec_packet_t
 {
 	qexec_packet_data_t data;
-	char* 				line;
-
 } qexec_packet_t;
 
 typedef struct gp_smon_to_mmon_header_t {
@@ -234,7 +225,6 @@ typedef struct gp_smon_to_mmon_packet_t {
 		gpmon_qlog_t    qlog;
 		qexec_packet_t  qexec_packet;
 		gpmon_seginfo_t seginfo;
-		gpmon_filerepinfo_t filerepinfo;
 		gpmon_fsinfo_t fsinfo;
 		gpmon_query_seginfo_t queryseg;
 	} u;
@@ -250,12 +240,6 @@ double subtractTimeOfDay(struct timeval* begin, struct timeval* end);
 /* Set header*/
 extern void gp_smon_to_mmon_set_header(gp_smon_to_mmon_packet_t* pkt, apr_int16_t pkttype);
 
-unsigned int gpdb_getnode_number_metrics(PerfmonNodeType type);
-const char* gpdb_getnodename(PerfmonNodeType type);
-const char* gpdb_getnodestatus(PerfmonNodeStatus status);
-apr_status_t gpdb_getnode_metricinfo(PerfmonNodeType type, apr_byte_t metricnum, const char** name, const char** unit);
-apr_status_t gpdb_debug_string_lookup_table(void);
 apr_status_t apr_pool_create_alloc(apr_pool_t ** newpool, apr_pool_t *parent);
 void gpdb_get_single_string_from_query(const char* QUERY, char** resultstring, apr_pool_t* pool);
-bool is_healthmon_running_separately(void);
 #endif /* GPMONLIB_H */

@@ -2,26 +2,6 @@ CUR_DIR:=`pwd`
 EXT:=$(CUR_DIR)/ext
 
 
-#-------------------------------------------------------------------------------
-# DOCS
-#
-# To get documentation for Python scripts, run the make gen_epydoc target.
-#
-# Note that the $(CUR_DIR)/sbin/gen_epydocs.sh script assumes that the SRC_DIR
-# is set to the top of the Greenplum source tree.
-#-------------------------------------------------------------------------------
-
-gen_epydoc:
-	$(CUR_DIR)/sbin/gen_epydocs.sh
-
-#-------------------------------------------------------------------------------
-# clean
-#-------------------------------------------------------------------------------
-clean:
-	@rm -rf $(CUR_DIR)/epydocs
-	@rm -rf $(CURDIR)/tincrepo/epydocs
-
-
 unit: tincunit
 regress: tincregress
 check: tinccheck tincmmgrcheck
@@ -52,7 +32,7 @@ storage_targets: discover_targets non_discover_targets
 
 discover_targets: storage walrep_multinode \
 	pgtwophase \
-	sub_transaction_limit_removal filerep_schematopology_crashrecov
+	filerep_schematopology_crashrecov
 
 non_discover_targets: aoco_compression filerep_end_to_end fts
 
@@ -71,11 +51,9 @@ storage_vacuum_xidlimits:
 aocoalter_catalog_loaders:
 	$(TESTER) $(DISCOVER) -t tincrepo/mpp/gpdb/tests \
 	-s storage/aoco_alter \
-	-s catalog/mpp24606 \
 	-s catalog/mpp25256 \
 	-s catalog/oid_inconsistency \
 	-s catalog/udf_exception_handling \
-	-s catalog/upgrade \
 	-s storage/loaders
 
 storage_uao_and_transactionmanagement:
@@ -237,20 +215,6 @@ fts_transitions_part02:
 
 fts_transitions_part03:
 	$(TESTER) mpp.gpdb.tests.storage.fts.fts_transitions.test_fts_transitions_03
-
-
-# cs-sub-transaction-limit-removal
-# The following targets are pulled from:
-# http://pulse-cloud.gopivotal.com/admin/projects/cs-sub-transaction-limit-removal
-#
-# Refer to the properties of the pulse project and individual build
-# stages for configuration requirements.
-
-sub_transaction_limit_removal:
-	$(TESTER) $(DISCOVER) \
-	-s tincrepo/mpp/gpdb/tests/storage/sub_transaction_limit_removal \
-	-p test*.py
-
 
 # cs-filerep-schema-topology-crashrecov
 # The following targets are pulled from:

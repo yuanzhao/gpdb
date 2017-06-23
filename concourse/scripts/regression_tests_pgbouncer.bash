@@ -9,35 +9,37 @@ function gen_env(){
 	cat > /home/gpadmin/run_regression_test.sh <<-EOF
 	set -exo pipefail
 
-	trap look4diffs ERR
-	dir=\${1}
-
-	function look4diffs() {
-
-	    diff_files=\`find \${dir}/gpdb_src/gpAux/extensions/gphdfs/regression -name regression.diffs\`
-
-	    for diff_file in \${diff_files}; do
-		if [ -f "\${diff_file}" ]; then
-		    cat <<-FEOF
-
-					======================================================================
-					DIFF FILE: \${diff_file}
-					----------------------------------------------------------------------
-
-					\$(cat "\${diff_file}")
-
-				FEOF    
-	    done
-	    exit 1
-	}
-
 	source /opt/gcc_env.sh
 	source /usr/local/greenplum-db-devel/greenplum_path.sh
 
 	cd "\${1}/gpdb_src/gpAux"
-	source gpdemo/gpdemo-env.sh
 
-	cd extensions/pgbouncer
+        echo "host     all         pgbtest         0.0.0.0/0    trust" >> \$MASTER_DATA_DIRECTORY/pg_hba.conf
+	echo 'host    all          ldaptest         0.0.0.0/0 ldap ldapserver=127.0.0.1 ldapprefix="cn=" ldapsuffix=", dc=my-domain, dc=com"' >> \$MASTER_DATA_DIRECTORY/pg_hba.conf
+	gpstop -arf
+        psql postgres -c "create user pgbtest superuser password 'changeme';"
+        PGPASSWORD=changeme psql -U pgbtest -p 6543  postgres -c 'select 1=1';
+        
+	psql postgres -c "create user ldaptest superuser password 'changeme';"
+        PGPASSWORD=changeme psql -U ldaptest -p 6543  postgres -c 'select 1=1';
+
+	EOF
+
+	chown -R gpadmin:gpadmin $(pwd)
+	chown gpadmin:gpadmin /home/gpadmin/run_regression_test.sh
+	chmod a+x /home/gpadmin/run_regression_test.sh
+}
+
+function install_pgbouncer(){
+	pushd gpdb_src/gpAux/extensions/pgbouncer
+	./autogen.sh
+	./configure --prefix=/usr/local/greenplum-db-devel --with-libevent=libevent-prefix
+	make; make install
+	popd
+}
+function setup_pgbouncer(){
+
+	pushd extensions/pgbouncer
 	./comfigure --prefix=$pgbouncer_instloc --with-libevent=libevent-prefix
 	make
 	make install
@@ -56,27 +58,75 @@ function gen_env(){
 	auth_type = plain
 	auth_file = users.txt
 	logfile = pgbouncer.log
-	idfile = pgbouncer.pid
+	pidfile = pgbouncer.pid
 	admin_users = pgtest
+	pidfile = pgbouncer.pid
 	IEOF
-#	wget -P /tmp http://www-us.apache.org/dist/hadoop/common/hadoop-2.7.3/hadoop-2.7.3.tar.gz
-#	tar zxf /tmp/hadoop-2.7.3.tar.gz -C /tmp
-#	export HADOOP_HOME=/tmp/hadoop-2.7.3
-#
-#
-#	\${HADOOP_HOME}/bin/hdfs namenode -format -force
-#	\${HADOOP_HOME}/sbin/start-dfs.sh
-#
-#	cd "\${1}/gpdb_src/gpAux/extensions/gphdfs/regression/integrate"
-#	HADOOP_HOST=localhost HADOOP_PORT=9000 ./generate_gphdfs_data.sh
-#	cd "\${1}/gpdb_src/gpAux/extensions/gphdfs/regression"
-#	GP_HADOOP_TARGET_VERSION=cdh4.1 HADOOP_HOST=localhost HADOOP_PORT=9000 ./run_gphdfs_regression.sh
-#	exit 0
-	EOF
 
-	chown -R gpadmin:gpadmin $(pwd)
-	chown gpadmin:gpadmin /home/gpadmin/run_regression_test.sh
-	chmod a+x /home/gpadmin/run_regression_test.sh
+	cat > users.txt <<-UEOF
+	"pgbtest" "changeme"
+	UEOF
+	su gpadmin -c "pgbouncer -d pg.ini"
+	popd
+	
+}
+function install_ldap(){
+	wget ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/openldap-2.4.45.tgz
+	tar -xvf openldap-2.4.45.tgz
+	pushd openldap-2.4.45
+	./configure
+	make depend
+	make; make install
+	popd
+}
+
+function setup_ldap(){
+	cat > slapd.ldif <<-LEOF
+	dn: cn=config
+	objectClass: olcGlobal
+	cn: config
+	olcArgsFile: /usr/local/var/run/slapd.args
+	olcPidFile: /usr/local/var/run/slapd.pid
+
+	dn: cn=schema,cn=config
+	objectClass: olcSchemaConfig
+	cn: schema
+
+	include: file:///usr/local/etc/openldap/schema/core.ldif
+
+	dn: olcDatabase=frontend,cn=config
+	objectClass: olcDatabaseConfig
+	objectClass: olcFrontendConfig
+	olcDatabase: frontend
+
+
+	dn: olcDatabase=mdb,cn=config
+	objectClass: olcDatabaseConfig
+	objectClass: olcMdbConfig
+	olcDatabase: mdb
+	olcSuffix: dc=my-domain,dc=com
+	olcRootDN: cn=Manager,dc=my-domain,dc=com
+	olcRootPW: secret
+	olcDbDirectory:    /usr/local/var/openldap-data
+	olcDbIndex: objectClass eq	
+	LEOF
+
+	cat > ldaptest.ldif <<-LDEOF
+        dn: dc=my-domain,dc=com 
+	objectclass: dcObject 
+	objectclass: organization 
+	o: Example Company 
+	dc: my-domain
+
+	dn: cn=ldaptest,dc=my-domain,dc=com 
+	objectclass: organizationalRole 
+	cn: ldaptest 
+	LDEOF
+
+	mkdir /usr/local/etc/slapd.d
+	/usr/local/sbin/slapadd  -n 0 -F /usr/local/etc/slapd.d/  -l slapd.ldif
+	/usr/local/libexec/slapd -F /usr/local/etc/slapd.d
+	ldapsearch -x -b '' -s base '(objectclass=*)' namingContexts
 }
 
 function run_regression_test() {
@@ -105,7 +155,10 @@ function _main() {
 	time setup_gpadmin_user
 	time make_cluster
 	time gen_env
-
+	time install_ldap
+	time setup_ldap
+	time install_pgbouncer 
+	time setup_pgbouncer
 	time run_regression_test
 }
 

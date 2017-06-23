@@ -423,8 +423,6 @@ struct Tuplesortstate
 static inline void USEMEM(Tuplesortstate *state, int amt)
 {
 	state->availMem -= amt;
-	if(state->gpmon_pkt)
-		Gpmon_M_Add(state->gpmon_pkt, GPMON_SORT_MEMORY_BYTE, amt);
 }
 
 static inline void FREEMEM(Tuplesortstate *state, int amt)
@@ -432,8 +430,6 @@ static inline void FREEMEM(Tuplesortstate *state, int amt)
 	if (state->availMemMin > state->availMem)
 		state->availMemMin = state->availMem;
 	state->availMem += amt;
-	if(state->gpmon_pkt)
-		Gpmon_M_Add(state->gpmon_pkt, GPMON_SORT_MEMORY_BYTE, -amt);
 }
 
 /*
@@ -1002,7 +998,7 @@ puttuple_common(Tuplesortstate *state, SortTuple *tuple)
 
 	/* gpmon */
 	if(state->gpmon_pkt)
-		Gpmon_M_Incr(state->gpmon_pkt, GPMON_QEXEC_M_ROWSIN); 
+		Gpmon_Incr_Rows_In(state->gpmon_pkt);
 
 	switch (state->status)
 	{
@@ -1510,7 +1506,7 @@ tuplesort_gettupleslot_pos(Tuplesortstate *state, TuplesortPos *pos,
 	{
 		ExecStoreMinimalTuple(stup.tuple, slot, should_free);
 		if (state->gpmon_pkt)
-			Gpmon_M_Incr_Rows_Out(state->gpmon_pkt);
+			Gpmon_Incr_Rows_Out(state->gpmon_pkt);
 		return true;
 	}
 	else
@@ -1801,14 +1797,6 @@ mergeruns(Tuplesortstate *state)
 	{
 		lt = LogicalTapeSetGetTape(state->tapeset, tapenum);
 		LogicalTapeRewind(state->tapeset, lt, false);
-	}
-
-	/* Clear gpmon for repilling data */
-	if(state->gpmon_pkt)
-	{
-		Gpmon_M_Incr(state->gpmon_pkt, GPMON_SORT_SPILLPASS);
-		Gpmon_M_Reset(state->gpmon_pkt, GPMON_SORT_CURRSPILLPASS_TUPLE);
-		Gpmon_M_Reset(state->gpmon_pkt, GPMON_SORT_CURRSPILLPASS_BYTE);
 	}
 
 	for (;;)
@@ -2854,20 +2842,12 @@ copytup_heap(Tuplesortstate *state, SortTuple *stup, void *tup)
 static void
 writetup_heap(Tuplesortstate *state, LogicalTape *lt, SortTuple *stup)
 {
-	uint32 tuplen = memtuple_get_size(stup->tuple, NULL); 
+	uint32 tuplen = memtuple_get_size(stup->tuple);
 
 	LogicalTapeWrite(state->tapeset, lt, (void *) stup->tuple, tuplen);
 
 	if (state->randomAccess)	/* need trailing length word? */
 		LogicalTapeWrite(state->tapeset, lt, (void *) &tuplen, sizeof(tuplen));
-
-	if (state->gpmon_pkt)
-	{
-		Gpmon_M_Incr(state->gpmon_pkt, GPMON_SORT_SPILLTUPLE);
-		Gpmon_M_Add(state->gpmon_pkt, GPMON_SORT_SPILLBYTE, tuplen);
-		Gpmon_M_Incr(state->gpmon_pkt, GPMON_SORT_CURRSPILLPASS_TUPLE);
-		Gpmon_M_Add(state->gpmon_pkt, GPMON_SORT_CURRSPILLPASS_BYTE, tuplen);
-	}
 
 	FREEMEM(state, GetMemoryChunkSpace(stup->tuple));
 	pfree(stup->tuple);
@@ -2882,7 +2862,7 @@ readtup_heap(Tuplesortstate *state, TuplesortPos *pos, SortTuple *stup,
 
 	stup->tuple = (MemTuple) palloc(memtuple_size_from_uint32(len));
 	USEMEM(state, GetMemoryChunkSpace(stup->tuple));
-	memtuple_set_mtlen(stup->tuple, NULL, len);
+	memtuple_set_mtlen(stup->tuple, len);
 
 	Assert(lt);
 	readSize = LogicalTapeRead(state->tapeset, lt,

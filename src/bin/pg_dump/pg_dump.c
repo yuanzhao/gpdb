@@ -4215,13 +4215,18 @@ getProcLangs(int *numProcLangs)
 	/* Make sure we are in proper schema */
 	selectSourceSchema("pg_catalog");
 
+	/*
+	 * The laninline column was added in upstream 90000 but was backported to
+	 * Greenplum 5, so the check needs to go further back than 90000.
+	 */
 	if (g_fout->remoteVersion >= 80300)
 	{
+		/* pg_language has a laninline column */
 		/* pg_language has a lanowner column */
 		appendPQExpBuffer(query, "SELECT tableoid, oid, "
 						  "lanname, lanpltrusted, lanplcallfoid, "
-						  "lanvalidator,  lanacl, "
-						  "(%s lanowner) as lanowner "
+						  "laninline, lanvalidator, lanacl, "
+						  "(%s lanowner) AS lanowner "
 						  "FROM pg_language "
 						  "WHERE lanispl "
 						  "ORDER BY oid",
@@ -4568,21 +4573,6 @@ getTableAttrs(TableInfo *tblinfo, int numTables)
 
 		PQclear(res);
 
-
-		/*
-		 *	ALTER TABLE DROP COLUMN clears pg_attribute.atttypid, so we
-		 *	set the column data type to 'TEXT;  we will later drop the
-		 *	column.
-		 */
-		if (binary_upgrade)
-		{
-			for (j = 0; j < ntups; j++)
-			{
-				if (tbinfo->attisdropped[j])
-					tbinfo->atttypnames[j] = strdup("TEXT");
-			}
-		}
-			
 		/*
 		 * Get info about column defaults
 		 */
@@ -5468,10 +5458,23 @@ dumpBinaryUpgrade(Archive *fout, DumpableObject **dobjs, int numObjs)
 				dumpConstraintOid(g_conn, fout, (ConstraintInfo *) dobj);
 				break;
 			case DO_PROCLANG:
-				dumpProcLangOid(fout, (ProcLangInfo *) dobj);
+				dumpProcLangOid(g_conn, g_fout, fout, (ProcLangInfo *) dobj);
 				break;
 			case DO_CAST:
 				dumpCastOid(fout, (CastInfo *) dobj);
+				break;
+			case DO_EXTENSION:
+				dumpExtensionOid(fout, (ExtensionInfo *) dobj);
+				break;
+			/*
+			 * All TS objects have the same preassignments so use a common
+			 * function for them all
+			 */
+			case DO_TSPARSER:
+			case DO_TSDICT:
+			case DO_TSTEMPLATE:
+			case DO_TSCONFIG:
+				dumpTSObjectOid(fout, dobj);
 				break;
 
 			/*
@@ -5491,22 +5494,13 @@ dumpBinaryUpgrade(Archive *fout, DumpableObject **dobjs, int numObjs)
 				break;
 
 			/*
-			 * GPDB_84_MERGE_FIXME:  Support for binary upgrade has not yet
-			 * been added for the following dumpable objects as they were
-			 * first introduced in Greenplum 5.0. When merging PostgreSQL 8.4,
-			 * implement this oid dispatch to cover the * 5.0 -> 6.0 upgrade
-			 * cycle.
-			 *
-			 * Ideally, support should be added even before then to be able
-			 * to upgrade 5.0 -> 5.0 in order to test the GPDB version of
-			 * pg_upgrade.
+			 * To ensure that new object types are added to the upgrade when
+			 * introduced, make unhandled object types an error condition.
 			 */
-			case DO_EXTENSION:
-			case DO_TSPARSER:
-			case DO_TSDICT:
-			case DO_TSTEMPLATE:
-			case DO_TSCONFIG:
-				break;
+			default:
+				write_msg(NULL, "unhandled object type encountered in binary upgrade");
+				exit_nicely();
+				return; /* not reached */
 		}
 	}
 }
@@ -7313,8 +7307,6 @@ dumpFunc(Archive *fout, FuncInfo *finfo)
 	else if (prodataaccess[0] == PRODATAACCESS_MODIFIES)
 		appendPQExpBuffer(q, " MODIFIES SQL DATA");
 
-	appendPQExpBuffer(q, ";\n");
-
 	for (i = 0; i < nconfigitems; i++)
 	{
 		/* we feel free to scribble on configitems[] here */
@@ -7961,7 +7953,8 @@ dumpOpclass(Archive *fout, OpclassInfo *opcinfo)
 	i_opcfamilynsp = PQfnumber(res, "opcfamilynsp");
 	i_amname = PQfnumber(res, "amname");
 
-	opcintype = PQgetvalue(res, 0, i_opcintype);
+	/* opcintype may still be needed after we PQclear res */
+	opcintype = pg_strdup(PQgetvalue(res, 0, i_opcintype));
 	opckeytype = PQgetvalue(res, 0, i_opckeytype);
 	opcdefault = PQgetvalue(res, 0, i_opcdefault);
 	opcfamily = PQgetvalue(res, 0, i_opcfamily);
@@ -8123,6 +8116,15 @@ dumpOpclass(Archive *fout, OpclassInfo *opcinfo)
 
 	PQclear(res);
 
+	/*
+	 * If needComma is still false it means we haven't added anything after
+	 * the AS keyword.  To avoid printing broken SQL, append a dummy STORAGE
+	 * clause with the same datatype.  This isn't sanctioned by the
+	 * documentation, but actually DefineOpClass will treat it as a no-op.
+	 */
+	if (!needComma)
+		appendPQExpBuffer(q, "STORAGE %s", opcintype);
+
 	appendPQExpBuffer(q, ";\n");
 
 	ArchiveEntry(fout, opcinfo->dobj.catId, opcinfo->dobj.dumpId,
@@ -8144,6 +8146,7 @@ dumpOpclass(Archive *fout, OpclassInfo *opcinfo)
 				NULL, opcinfo->rolname,
 				opcinfo->dobj.catId, 0, opcinfo->dobj.dumpId);
 
+	free(opcintype);
 	free(amname);
 	destroyPQExpBuffer(query);
 	destroyPQExpBuffer(q);
@@ -8275,7 +8278,7 @@ dumpOpfamily(Archive *fout, OpfamilyInfo *opfinfo)
 	resetPQExpBuffer(query);
 
 	appendPQExpBuffer(query, "SELECT "
-	 "(SELECT amname FROM pg_catalog.pg_am WHERE oid = opfmethod) AS amname, "
+	 "(SELECT amname FROM pg_catalog.pg_am WHERE oid = opfmethod) AS amname "
 					  "FROM pg_catalog.pg_opfamily "
 					  "WHERE oid = '%u'::pg_catalog.oid",
 					  opfinfo->dobj.catId.oid);
@@ -9833,6 +9836,18 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 				appendPQExpBuffer(q, "%s ",
 								  fmtId(tbinfo->attnames[j]));
 
+				if (tbinfo->attisdropped[j])
+				{
+					/*
+					 * ALTER TABLE DROP COLUMN clears pg_attribute.atttypid,
+					 * so we will not have gotten a valid type name; insert
+					 * INTEGER as a stopgap.  We'll clean things up later.
+					 */
+					appendPQExpBuffer(q, "INTEGER /* dummy */");
+					/* Skip all the rest, too */
+					continue;
+				}
+
 				/* Attribute type */
 				appendPQExpBuffer(q, "%s",
 								  tbinfo->atttypnames[j]);
@@ -10051,8 +10066,16 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		}
 
 		/*
-		 * For binary-compatible heap files, we create dropped columns
-		 * above and drop them here.
+		 * To create binary-compatible heap files, we have to ensure the
+		 * same physical column order, including dropped columns, as in the
+		 * original.  Therefore, we create dropped columns above and drop
+		 * them here, also updating their attlen/attalign values so that
+		 * the dropped column can be skipped properly.  (We do not bother
+		 * with restoring the original attbyval setting.)  Also, inheritance
+		 * relationships are set up by doing ALTER INHERIT rather than using
+		 * an INHERITS clause --- the latter would possibly mess up the
+		 * column order.  That also means we have to take care about setting
+		 * attislocal correctly, plus fix up any inherited CHECK constraints.
 		 */
 		if (binary_upgrade)
 		{
@@ -10060,41 +10083,99 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 			{
 				if (tbinfo->attisdropped[j])
 				{
+					/*
+					 * Greenplum doesn't allow altering system catalogs without
+					 * setting the allow_system_table_mods GUC first.
+					 */
+					appendPQExpBuffer(q, "SET allow_system_table_mods = 'dml';\n");
+
+					appendPQExpBuffer(q, "\n-- For binary upgrade, recreate dropped column.\n");
+					appendPQExpBuffer(q, "UPDATE pg_catalog.pg_attribute\n"
+									  "SET attlen = %d, "
+									  "attalign = '%c', attbyval = false\n"
+									  "WHERE attname = ",
+									  tbinfo->attlen[j],
+									  tbinfo->attalign[j]);
+					appendStringLiteralAH(q, tbinfo->attnames[j], fout);
+					appendPQExpBuffer(q, "\n  AND attrelid = ");
+					appendStringLiteralAH(q, fmtId(tbinfo->dobj.name), fout);
+					appendPQExpBuffer(q, "::pg_catalog.regclass;\n");
+
 					appendPQExpBuffer(q, "ALTER TABLE ONLY %s ",
 									  fmtId(tbinfo->dobj.name));
 					appendPQExpBuffer(q, "DROP COLUMN %s;\n",
 									  fmtId(tbinfo->attnames[j]));
-
+				}
+				else if (!tbinfo->attislocal[j])
+				{
 					/*
-					 *	ALTER TABLE DROP COLUMN clears pg_attribute.atttypid,
-					 *	so we have to set pg_attribute.attlen and
-					 *	pg_attribute.attalign values because that is what
-					 *	is used to skip over dropped columns in the heap tuples.
-					 *	We have atttypmod, but it seems impossible to know the
-					 *	correct data type that will yield pg_attribute values
-					 *	that match the old installation.
-					 *	See comment in backend/catalog/heap.c::RemoveAttributeById()
+					 * Greenplum doesn't allow altering system catalogs without
+					 * setting the allow_system_table_mods GUC first.
 					 */
-					appendPQExpBuffer(q, "\n-- For binary upgrade, recreate dropped column's length and alignment.\n");
-					appendPQExpBuffer(q, "UPDATE pg_attribute\n"
-										 "SET attlen = %d, "
-										 "attalign = '%c'\n"
-										 "WHERE	attname = '%s'\n"
-										 "	AND attrelid = \n"
-										 "	(\n"
-										 "		SELECT oid\n"
-										 "		FROM pg_class\n"
-										 "		WHERE	relnamespace = "
-										 "(SELECT oid FROM pg_namespace "
-										 "WHERE nspname = CURRENT_SCHEMA)\n"
-										 "			AND relname = '%s'\n"
-										 "	);",
-										 tbinfo->attlen[j],
-										 tbinfo->attalign[j],
-										 tbinfo->attnames[j],
-										 tbinfo->dobj.name);
+					appendPQExpBuffer(q, "SET allow_system_table_mods = 'dml';\n");
+
+					appendPQExpBuffer(q, "\n-- For binary upgrade, recreate inherited column.\n");
+					appendPQExpBuffer(q, "UPDATE pg_catalog.pg_attribute\n"
+									  "SET attislocal = false\n"
+									  "WHERE attname = ");
+					appendStringLiteralAH(q, tbinfo->attnames[j], fout);
+					appendPQExpBuffer(q, "\n  AND attrelid = ");
+					appendStringLiteralAH(q, fmtId(tbinfo->dobj.name), fout);
+					appendPQExpBuffer(q, "::pg_catalog.regclass;\n");
 				}
 			}
+
+			for (k = 0; k < tbinfo->ncheck; k++)
+			{
+				ConstraintInfo *constr = &(tbinfo->checkexprs[k]);
+
+				if (constr->separate)
+					continue;
+
+				/*
+				 * Greenplum doesn't allow altering system catalogs without
+				 * setting the allow_system_table_mods GUC first.
+				 */
+				appendPQExpBuffer(q, "SET allow_system_table_mods = 'dml';\n");
+
+				appendPQExpBuffer(q, "\n-- For binary upgrade, set up inherited constraint.\n");
+				appendPQExpBuffer(q, "ALTER TABLE ONLY %s ",
+								  fmtId(tbinfo->dobj.name));
+				appendPQExpBuffer(q, " ADD CONSTRAINT %s ",
+								  fmtId(constr->dobj.name));
+				appendPQExpBuffer(q, "%s;\n", constr->condef);
+				appendPQExpBuffer(q, "UPDATE pg_catalog.pg_constraint\n"
+								  "SET conislocal = false\n"
+								  "WHERE contype = 'c' AND conname = ");
+				appendStringLiteralAH(q, constr->dobj.name, fout);
+				appendPQExpBuffer(q, "\n  AND conrelid = ");
+				appendStringLiteralAH(q, fmtId(tbinfo->dobj.name), fout);
+				appendPQExpBuffer(q, "::pg_catalog.regclass;\n");
+			}
+
+			if (numParents > 0)
+			{
+				appendPQExpBuffer(q, "\n-- For binary upgrade, set up inheritance this way.\n");
+				for (k = 0; k < numParents; k++)
+				{
+					TableInfo  *parentRel = parents[k];
+
+					appendPQExpBuffer(q, "ALTER TABLE ONLY %s INHERIT ",
+									  fmtId(tbinfo->dobj.name));
+					if (parentRel->dobj.namespace != tbinfo->dobj.namespace)
+						appendPQExpBuffer(q, "%s.",
+										  fmtId(parentRel->dobj.namespace->dobj.name));
+					appendPQExpBuffer(q, "%s;\n",
+									  fmtId(parentRel->dobj.name));
+				}
+			}
+
+			/*
+			 * We have probably bumped allow_system_table_mods to 'dml' in the
+			 * above processing, but even we didn't let's just reset it here
+			 * since it doesn't to do any harm to.
+			 */
+			appendPQExpBuffer(q, "RESET allow_system_table_mods;\n");
 		}
 	
 		/*
@@ -11649,8 +11730,8 @@ addDistributedBy(PQExpBuffer q, TableInfo *tbinfo, int actual_atts)
 {
 	PQExpBuffer query = createPQExpBuffer();
 	PGresult   *res;
-	char	   *policydef = NULL;
-	char	   *policycol = NULL;
+	char	   *policydef;
+	char	   *policycol;
 
 	appendPQExpBuffer(query,
 					  "SELECT attrnums FROM gp_distribution_policy as p "
@@ -11688,7 +11769,6 @@ addDistributedBy(PQExpBuffer q, TableInfo *tbinfo, int actual_atts)
 		{
 			write_msg(NULL, "query to obtain distribution policy of table \"%s\" returned more than one policy\n",
 					  tbinfo->dobj.name);
-
 			exit_nicely();
 		}
 	}
@@ -11708,9 +11788,9 @@ addDistributedBy(PQExpBuffer q, TableInfo *tbinfo, int actual_atts)
 			policycol = nextToken(&policydef, ",");
 			appendPQExpBuffer(q, " DISTRIBUTED BY (%s",
 							  fmtId(tbinfo->attnames[atoi(policycol) - 1]));
-			for (; (policycol = nextToken(&policydef, ",")) != NULL;)
+			while ((policycol = nextToken(&policydef, ",")) != NULL)
 			{
-				appendPQExpBuffer(q, " ,%s",
+				appendPQExpBuffer(q, ", %s",
 							   fmtId(tbinfo->attnames[atoi(policycol) - 1]));
 			}
 			appendPQExpBufferChar(q, ')');
@@ -11720,12 +11800,10 @@ addDistributedBy(PQExpBuffer q, TableInfo *tbinfo, int actual_atts)
 			/* policy has an empty policy - distribute randomly */
 			appendPQExpBufferStr(q, " DISTRIBUTED RANDOMLY");
 		}
-
 	}
 
 	PQclear(res);
 	destroyPQExpBuffer(query);
-
 }
 
 /*

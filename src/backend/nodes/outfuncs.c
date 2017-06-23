@@ -9,7 +9,7 @@
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/nodes/outfuncs.c,v 1.322.2.3 2010/08/18 15:22:15 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/nodes/outfuncs.c,v 1.340 2008/10/04 21:56:53 tgl Exp $
  *
  * NOTES
  *	  Every node type that can appear in stored rules' parsetrees *must*
@@ -462,6 +462,16 @@ _outSequence(StringInfo str, Sequence *node)
 }
 
 static void
+_outRecursiveUnion(StringInfo str, RecursiveUnion *node)
+{
+	WRITE_NODE_TYPE("RECURSIVEUNION");
+
+	_outPlanInfo(str, (Plan *) node);
+
+	WRITE_INT_FIELD(wtParam);
+}
+
+static void
 _outBitmapAnd(StringInfo str, BitmapAnd *node)
 {
 	WRITE_NODE_TYPE("BITMAPAND");
@@ -689,6 +699,27 @@ _outValuesScan(StringInfo str, ValuesScan *node)
 	_outScanInfo(str, (Scan *) node);
 
 	WRITE_NODE_FIELD(values_lists);
+}
+
+static void
+_outCteScan(StringInfo str, CteScan *node)
+{
+	WRITE_NODE_TYPE("CTESCAN");
+
+	_outScanInfo(str, (Scan *) node);
+
+	WRITE_INT_FIELD(ctePlanId);
+	WRITE_INT_FIELD(cteParam);
+}
+
+static void
+_outWorkTableScan(StringInfo str, WorkTableScan *node)
+{
+	WRITE_NODE_TYPE("WORKTABLESCAN");
+
+	_outScanInfo(str, (Scan *) node);
+
+	WRITE_INT_FIELD(wtParam);
 }
 
 static void
@@ -1972,6 +2003,7 @@ _outPlannerInfo(StringInfo str, PlannerInfo *node)
 	WRITE_NODE_FIELD(resultRelations);
 	WRITE_NODE_FIELD(returningLists);
 	WRITE_NODE_FIELD(init_plans);
+	WRITE_NODE_FIELD(cte_plan_ids);
 	WRITE_NODE_FIELD(eq_classes);
 	WRITE_NODE_FIELD(canon_pathkeys);
 	WRITE_NODE_FIELD(left_join_clauses);
@@ -1989,6 +2021,8 @@ _outPlannerInfo(StringInfo str, PlannerInfo *node)
 	WRITE_BOOL_FIELD(hasOuterJoins);
 	WRITE_BOOL_FIELD(hasHavingQual);
 	WRITE_BOOL_FIELD(hasPseudoConstantQuals);
+	WRITE_BOOL_FIELD(hasRecursion);
+	WRITE_INT_FIELD(wt_param_id);
 }
 
 static void
@@ -2646,7 +2680,7 @@ _outCreateDomainStmt(StringInfo str, CreateDomainStmt *node)
 {
 	WRITE_NODE_TYPE("CREATEDOMAINSTMT");
 	WRITE_NODE_FIELD(domainname);
-	WRITE_NODE_FIELD_AS(typname, typename);
+	WRITE_NODE_FIELD_AS(typeName, typename);
 	WRITE_NODE_FIELD(constraints);
 }
 #endif /* COMPILING_BINARY_FUNCS */
@@ -2657,7 +2691,7 @@ _outAlterDomainStmt(StringInfo str, AlterDomainStmt *node)
 {
 	WRITE_NODE_TYPE("ALTERDOMAINSTMT");
 	WRITE_CHAR_FIELD(subtype);
-	WRITE_NODE_FIELD_AS(typname, typename);
+	WRITE_NODE_FIELD_AS(typeName, typename);
 	WRITE_STRING_FIELD(name);
 	WRITE_NODE_FIELD(def);
 	WRITE_ENUM_FIELD(behavior, DropBehavior);
@@ -3303,7 +3337,7 @@ _outColumnDef(StringInfo str, ColumnDef *node)
 	WRITE_NODE_TYPE("COLUMNDEF");
 
 	WRITE_STRING_FIELD(colname);
-	WRITE_NODE_FIELD_AS(typname, typename);
+	WRITE_NODE_FIELD_AS(typeName, typename);
 	WRITE_INT_FIELD(inhcount);
 	WRITE_BOOL_FIELD(is_local);
 	WRITE_BOOL_FIELD(is_not_null);
@@ -3340,7 +3374,7 @@ _outTypeCast(StringInfo str, TypeCast *node)
 	WRITE_NODE_TYPE("TYPECAST");
 
 	WRITE_NODE_FIELD(arg);
-	WRITE_NODE_FIELD_AS(typname, typename);
+	WRITE_NODE_FIELD_AS(typeName, typename);
 }
 #endif /* COMPILING_BINARY_FUNCS */
 
@@ -3663,12 +3697,9 @@ _outRangeTblEntry(StringInfo str, RangeTblEntry *node)
 		case RTE_SUBQUERY:
 			WRITE_NODE_FIELD(subquery);
 			break;
-		case RTE_CTE:
-			WRITE_STRING_FIELD(ctename);
-			WRITE_INT_FIELD(ctelevelsup);
-			WRITE_BOOL_FIELD(self_reference);
-			WRITE_NODE_FIELD(ctecoltypes);
-			WRITE_NODE_FIELD(ctecoltypmods);
+		case RTE_JOIN:
+			WRITE_ENUM_FIELD(jointype, JoinType);
+			WRITE_NODE_FIELD(joinaliasvars);
 			break;
 		case RTE_FUNCTION:
 			WRITE_NODE_FIELD(funcexpr);
@@ -3689,9 +3720,12 @@ _outRangeTblEntry(StringInfo str, RangeTblEntry *node)
 		case RTE_VALUES:
 			WRITE_NODE_FIELD(values_lists);
 			break;
-		case RTE_JOIN:
-			WRITE_ENUM_FIELD(jointype, JoinType);
-			WRITE_NODE_FIELD(joinaliasvars);
+		case RTE_CTE:
+			WRITE_STRING_FIELD(ctename);
+			WRITE_UINT_FIELD(ctelevelsup);
+			WRITE_BOOL_FIELD(self_reference);
+			WRITE_NODE_FIELD(ctecoltypes);
+			WRITE_NODE_FIELD(ctecoltypmods);
 			break;
         case RTE_VOID:                                                  /*CDB*/
             break;
@@ -3844,7 +3878,7 @@ _outAConst(StringInfo str, A_Const *node)
 	appendStringInfoChar(str, ' ');
 
 	_outValue(str, &(node->val));
-	WRITE_NODE_FIELD_AS(typname, typename);
+	WRITE_NODE_FIELD_AS(typeName, typename);
     /*
      * CDB: For now we don't serialize the 'location' field, for compatibility
      * so stored constants can be read by pre-3.2 releases.  Anyway it's only
@@ -4064,14 +4098,14 @@ _outSlice(StringInfo str, Slice *node)
 	WRITE_NODE_TYPE("SLICE");
 	WRITE_INT_FIELD(sliceIndex);
 	WRITE_INT_FIELD(rootIndex);
+	WRITE_INT_FIELD(parentIndex);
+	WRITE_NODE_FIELD(children); /* List of int index */
 	WRITE_ENUM_FIELD(gangType,GangType);
 	WRITE_INT_FIELD(gangSize);
 	WRITE_INT_FIELD(numGangMembersToBeActive);
 	WRITE_BOOL_FIELD(directDispatch.isDirectDispatch);
 	WRITE_NODE_FIELD(directDispatch.contentIds); /* List of int */
 	WRITE_DUMMY_FIELD(primaryGang);
-	WRITE_INT_FIELD(parentIndex); /* List of int index */
-	WRITE_NODE_FIELD(children); /* List of int index */
 	WRITE_NODE_FIELD(primaryProcesses); /* List of (CDBProcess *) */
 }
 
@@ -4225,7 +4259,7 @@ _outAlterTypeStmt(StringInfo str, AlterTypeStmt *node)
 {
 	WRITE_NODE_TYPE("ALTERTYPESTMT");
 
-	WRITE_NODE_FIELD(typname);
+	WRITE_NODE_FIELD(typeName);
 	WRITE_NODE_FIELD(encoding);
 }
 
@@ -4345,6 +4379,9 @@ _outNode(StringInfo str, void *obj)
 			case T_Sequence:
 				_outSequence(str, obj);
 				break;
+			case T_RecursiveUnion:
+				_outRecursiveUnion(str, obj);
+				break;
 			case T_BitmapAnd:
 				_outBitmapAnd(str, obj);
 				break;
@@ -4401,6 +4438,12 @@ _outNode(StringInfo str, void *obj)
 				break;
 			case T_ValuesScan:
 				_outValuesScan(str, obj);
+				break;
+			case T_CteScan:
+				_outCteScan(str, obj);
+				break;
+			case T_WorkTableScan:
+				_outWorkTableScan(str, obj);
 				break;
 			case T_Join:
 				_outJoin(str, obj);

@@ -18,6 +18,7 @@
        | ('s3://<varname>S3_endpoint</varname>[:<varname>port</varname>]/<varname>bucket_name</varname>/[<varname>S3_prefix</varname>]
              [region=<varname>S3-region</varname>]
             [config=<varname>config_file</varname>]')
+     [ON MASTER]
      FORMAT 'TEXT' 
            [( [HEADER]
               [DELIMITER [AS] '<varname>delimiter</varname>' | 'OFF']
@@ -99,6 +100,7 @@ CREATE WRITABLE EXTERNAL TABLE <varname>table_name</varname>
      LOCATION('s3://<varname>S3_endpoint</varname>[:<varname>port</varname>]/<varname>bucket_name</varname>/[<varname>S3_prefix</varname>]
             [region=<varname>S3-region</varname>]
             [config=<varname>config_file</varname>]')
+      [ON MASTER]
       FORMAT 'TEXT' 
                [( [DELIMITER [AS] '<varname>delimiter</varname>']
                [NULL [AS] '<varname>null string</varname>']
@@ -189,6 +191,9 @@ CREATE WRITABLE EXTERNAL WEB TABLE <varname>table_name</varname>
             Writable external web tables output data to an executable program that can accept an
             input stream of data. External web tables are not rescannable during query
             execution.</pd>
+          <pd>The <codeph>s3</codeph> protocol does not support external web tables. You can,
+            however, create an external web table that executes a third-party tool to read data
+            from or write data to S3 directly.</pd>
         </plentry>
         <plentry>
           <pt>
@@ -221,7 +226,7 @@ CREATE WRITABLE EXTERNAL WEB TABLE <varname>table_name</varname>
           <pt>LOCATION <varname>('protocol://host[:port]/path/file' [, ...])</varname></pt>
           <pd>For readable external tables, specifies the URI of the external data source(s) to be
             used to populate the external table or web table. Regular readable external tables allow
-            the <codeph>gpfdist</codeph> or <codeph>file</codeph> protocols. Eexternal web tables
+            the <codeph>gpfdist</codeph> or <codeph>file</codeph> protocols. External web tables
             allow the <codeph>http</codeph> protocol. If <codeph>port</codeph> is omitted, port
               <codeph>8080</codeph> is assumed for <codeph>http</codeph> and
               <codeph>gpfdist</codeph> protocols, and port 9000 for the <codeph>gphdfs</codeph>
@@ -296,7 +301,7 @@ CREATE WRITABLE EXTERNAL WEB TABLE <varname>table_name</varname>
             the S3 endpoint and bucket name where data files are uploaded for the table. For
             writable external tables you can specify an optional S3 file prefix to use when creating
             new files for data inserted to the table.</pd>
-          <pd>If you specify an <varname>S3_prefix</varname> for read-only s3 tables, the
+          <pd>If you specify an <varname>S3_prefix</varname> for read-only S3 tables, the
               <codeph>s3</codeph> protocol selects those all those files that have the specified S3
             file prefix.</pd>
           <pd>
@@ -311,17 +316,17 @@ CREATE WRITABLE EXTERNAL WEB TABLE <varname>table_name</varname>
             />.</pd>
           <pd>This is an example read-only external table definition with the <codeph>s3</codeph>
             protocol.<codeblock>CREATE READABLE EXTERNAL TABLE S3TBL (date text, time text, amt int)
-   LOCATION('s3://s3-us-west-2.amazonaws.com/s3test.pivotal.io/dataset1/normal/
+   LOCATION('s3://s3-us-west-2.amazonaws.com/s3test.example.com/dataset1/normal/
       config=/home/gpadmin/aws_s3/s3.conf')
    FORMAT 'csv';</codeblock></pd>
           <pd>The S3 bucket is at the S3 endpoint <codeph>s3-us-west-2.amazonaws.com</codeph> and
-            the S3 bucket name is <codeph>s3test.pivotal.io</codeph>. The S3 prefix for the files in
-            the bucket is <codeph>/dataset1/normal/</codeph>. The configuration file is in
+            the S3 bucket name is <codeph>s3test.example.com</codeph>. The S3 prefix for the files
+            in the bucket is <codeph>/dataset1/normal/</codeph>. The configuration file is in
               <codeph>/home/gpadmin/s3/s3.conf</codeph> on all Greenplum Database segments.</pd>
           <pd>This example read-only external table specifies the same location and specifies Amazon
             S3 region <codeph>us-west-2</codeph> with the <codeph>region</codeph>
             parameter.<codeblock>CREATE READABLE EXTERNAL TABLE S3TBL (date text, time text, amt int)
-   LOCATION('s3://amazonaws.com/s3test.pivotal.io/dataset1/normal/
+   LOCATION('s3://amazonaws.com/s3test.example.com/dataset1/normal/
       region=s3-us-west-2 config=/home/gpadmin/aws_s3/s3.conf')
    FORMAT 'csv';</codeblock></pd>
           <pd>The <varname>port</varname> is optional in the URL of the <codeph>LOCATION</codeph>
@@ -347,11 +352,17 @@ CREATE WRITABLE EXTERNAL WEB TABLE <varname>table_name</varname>
       config=/home/gpadmin/aws_s3/s3.conf')</codeblock></pd>
           <pd>When the <codeph>version</codeph> parameter is <codeph>2</codeph>, you can also
             specify an Amazon S3 endpoint. This example specifies an Amazon S3
-            endpoint.<codeblock>LOCATION ('s3://s3-us-west-2.amazonaws.com/s3test.pivotal.io/dataset1/normal/ <b>region=us-west-2</b>
+            endpoint.<codeblock>LOCATION ('s3://s3-us-west-2.amazonaws.com/s3test.example.com/dataset1/normal/ <b>region=us-west-2</b>
       config=/home/gpadmin/aws_s3/s3.conf')</codeblock></pd>
           <pd>For information about the <codeph>s3</codeph> protocol, see <xref
               href="../../admin_guide/load/topics/g-s3-protocol.xml#amazon-emr">s3://
               Protocol</xref> in the <cite>Greenplum Database Administrator Guide</cite>.</pd>
+        </plentry>
+        <plentry>
+          <pt>ON MASTER</pt>
+          <pd>Permitted only on readable and writable external tables created with the 
+            <codeph>s3</codeph> protocol. Restricts all table-related
+	    operations to the Greenplum master segment.</pd>
         </plentry>
         <plentry>
           <pt>EXECUTE <varname>'command'</varname> [ON ...]</pt>

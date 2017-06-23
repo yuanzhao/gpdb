@@ -394,3 +394,40 @@ select max(bytes) as max, min(bytes) as min from gp_toolkit.gp_workfile_mgr_used
    0 |   0
 (1 row)
 
+-- Check if we delete workfile_set at each subtransaction.
+-- This test doesn't depend on the guc `gp_workfile_limit_per_segment` like rest
+-- start_ignore
+drop external table if exists exttest;
+NOTICE:  table "exttest" does not exist, skipping
+create external web table exttest (x int)
+execute E'echo 1; echo 2; echo 3; echo bogus; echo 5'
+on master
+format 'text';
+-- end_ignore
+create or replace function workset_cleanup_test()
+returns boolean as
+$func$
+declare                                          
+  sub_work_set_cnt  integer;
+  top_work_set_cnt 	integer;
+begin
+  select count(*) into top_work_set_cnt from gp_toolkit.gp_workfile_entries;
+   for i in 1..2 loop
+     begin
+       select * from exttest a, exttest b;
+     exception when others then
+       raise notice 'caught exception: %', sqlerrm;
+     end;
+     select count(*) into sub_work_set_cnt from gp_toolkit.gp_workfile_entries;
+   end loop;
+  return top_work_set_cnt = sub_work_set_cnt;
+end;
+$func$ language plpgsql;
+select workset_cleanup_test();
+NOTICE:  caught exception: invalid input syntax for integer: "bogus"
+NOTICE:  caught exception: invalid input syntax for integer: "bogus"
+ workset_cleanup_test 
+----------------------
+ t
+(1 row)
+

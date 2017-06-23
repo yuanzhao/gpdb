@@ -819,6 +819,10 @@ PortalStart(Portal portal, ParamListInfo params, Snapshot snapshot,
 		/* Uncaught error while executing portal: mark it dead */
 		portal->status = PORTAL_FAILED;
 
+		/* GPDB: cleanup dispatch and teardown interconnect */
+		if (portal->queryDesc)
+			mppExecutorCleanup(portal->queryDesc);
+
 		/* Restore global vars and propagate error */
 		ActivePortal = saveActivePortal;
 		ActiveSnapshot = saveActiveSnapshot;
@@ -1046,6 +1050,10 @@ PortalRun(Portal portal, int64 count, bool isTopLevel,
 	{
 		/* Uncaught error while executing portal: mark it dead */
 		portal->status = PORTAL_FAILED;
+
+		/* GPDB: cleanup dispatch and teardown interconnect */
+		if (portal->queryDesc)
+			mppExecutorCleanup(portal->queryDesc);
 
 		/* Restore global vars and propagate error */
 		if (saveMemoryContext == saveTopTransactionContext)
@@ -1319,7 +1327,7 @@ RunFromStore(Portal portal, ScanDirection direction, int64 count,
 
 			oldcontext = MemoryContextSwitchTo(portal->holdContext);
 
-			ok = tuplestore_gettupleslot(portal->holdStore, forward, slot);
+			ok = tuplestore_gettupleslot(portal->holdStore, forward, false, slot);
 
 			MemoryContextSwitchTo(oldcontext);
 
@@ -1606,6 +1614,10 @@ PortalRunFetch(Portal portal,
 	{
 		/* Uncaught error while executing portal: mark it dead */
 		portal->status = PORTAL_FAILED;
+
+		/* GPDB: cleanup dispatch and teardown interconnect */
+		if (portal->queryDesc)
+			mppExecutorCleanup(portal->queryDesc);
 
 		/* Restore global vars and propagate error */
 		ActivePortal = saveActivePortal;

@@ -85,6 +85,8 @@ typedef enum FaultInjectorIdentifier_e {
 	
 	ChangeTrackingDisable,
 	
+	TransactionStartUnderEntryDbSingleton,
+
 	TransactionAbortAfterDistributedPrepared,
 	
 	TransactionCommitPass1FromCreatePendingToCreated,
@@ -154,10 +156,6 @@ typedef enum FaultInjectorIdentifier_e {
 
 	SegmentProbeResponse,
 
-	SubtransactionFlushToFile,
-	SubtransactionReadFromFile,
-	SubtransactionRelease,
-	SubtransactionRollback,
 	LocalTmRecordTransactionCommit,
 	
 	MallocFailure,
@@ -168,7 +166,6 @@ typedef enum FaultInjectorIdentifier_e {
 
 	UpdateCommittedEofInPersistentTable,
 
-	ExecSimpleQueryEndCommand,
 	MultiExecHashLargeVmem,
 
 	ExecSortBeforeSorting,
@@ -196,6 +193,7 @@ typedef enum FaultInjectorIdentifier_e {
 	VacuumFullBeforeTruncate,
 	VacuumFullAfterTruncate,
 	VacuumRelationEndOfFirstRound,
+	VacuumRelationOpenRelationDuringDropPhase,
 
 	RebuildPTDB,
 
@@ -216,7 +214,7 @@ typedef enum FaultInjectorIdentifier_e {
 	AfterOneSliceDispatched,
 
 	InterconnectStopAckIsLost,
-	CursorQEReaderAfterSnapshot,
+	QEGotSnapshotAndInterconnect,
 
 	FsyncCounter,
 	BgBufferSyncDefaultLogic,

@@ -175,6 +175,8 @@ FaultInjectorIdentifierEnumToString[] = {
 		/* report if compacting is in progress */
 	_("change_tracking_disable"),
 		/* inject fault during fsync to Change Tracking log */
+	_("transaction_start_under_entry_db_singleton"),
+		/* inject fault during transaction start with DistributedTransactionContext in ENTRY_DB_SINGLETON mode */
 	_("transaction_abort_after_distributed_prepared"),
 		/* inject fault after transaction is prepared */
 	_("transaction_commit_pass1_from_create_pending_to_created"),
@@ -237,14 +239,6 @@ FaultInjectorIdentifierEnumToString[] = {
     	/* inject fault after segment receives state transition request */
 	_("segment_probe_response"),
 		/* inject fault after segment is probed by FTS */
-	_("SubtransactionFlushToFile"),
-		/* inject fault while writing subxids to file */
-	_("SubtransactionReadFromFile"),
-		/* inject fault while reading subxids from file */
-	_("SubtransactionRelease"),
-		/* inject fault before sub-transaction commit is recorded in xlog */
-	_("SubtransactionRollback"),
-		/* inject fault before sub-transaction abort is recorded in xlog */
 	_("local_tm_record_transaction_commit"),
 		/* inject fault after recording transaction commit for local transaction  */
 	_("malloc_failure"),
@@ -259,8 +253,6 @@ FaultInjectorIdentifierEnumToString[] = {
 	 /* inject fault before we close workfile in ExecHashJoinNewBatch */
 	_("update_committed_eof_in_persistent_table"),
 		/* inject fault before committed EOF is updated in gp_persistent_relation_node for Append Only segment files */
-	_("exec_simple_query_end_command"),
-		/* inject fault before EndCommand in exec_simple_query */
 	_("multi_exec_hash_large_vmem"),
 		/* large palloc inside MultiExecHash to attempt to exceed vmem limit */
 	_("execsort_before_sorting"),
@@ -301,6 +293,8 @@ FaultInjectorIdentifierEnumToString[] = {
 		/* inject fault after truncate in vacuum full */
 	_("vacuum_relation_end_of_first_round"),
 		/* inject fault at the end of first round of vacuumRelation loop */
+	_("vacuum_relation_open_relation_during_drop_phase"),
+		/* inject fault during the open relation of the drop phase of vacuumRelation loop */
 	_("rebuild_pt_db"),
 		/* inject fault while rebuilding persistent tables (for each db) */
 	_("procarray_add"),
@@ -325,8 +319,8 @@ FaultInjectorIdentifierEnumToString[] = {
 		/* inject fault in cdbdisp_dispatchX*/
 	_("interconnect_stop_ack_is_lost"),
 		/* inject fault in interconnect to skip sending the stop ack */
-	_("cursor_qe_reader_after_snapshot"),
-		/* inject fault after QE READER has populated snashot for cursor */
+	_("qe_got_snapshot_and_interconnect"),
+		/* inject fault after qe got snapshot and interconnect*/
 	_("fsync_counter"),
 		/* inject fault to 'skip' in order to flush all buffers in BgBufferSync() */
 	_("bg_buffer_sync_default_logic"),
@@ -1100,11 +1094,6 @@ FaultInjector_NewHashEntry(
 		case TwoPhaseTransactionCommitPrepared:
 		case TwoPhaseTransactionAbortPrepared:
 		
-//		case SubtransactionFlushToFile:
-//		case SubtransactionReadFromFile:
-//		case SubtransactionRelease:
-//		case SubtransactionRollback:
-		/* Ashwin */
 		case FileRepChangeTrackingCompacting:
 
 		/* We do not use vmem on master. Therefore, we only attempt large palloc on segments. */

@@ -526,6 +526,7 @@ fi
 # We already have this in Makefile.win32, but configure needs it too
 if test "$PORTNAME" = "win32"; then
   CPPFLAGS="$CPPFLAGS -I$srcdir/src/include/port/win32 -IgpAux/ext/win32/kfw-3-2-2/inc/krb5 -IgpAux/ext/win32/kfw-3-2-2/inc/krb5/gssapi -LgpAux/ext/win32/kfw-3-2-2/lib  -DEXEC_BACKEND -DUNSAFE_STAT_OK"
+
 fi
 
 # Check if the compiler still works with the template settings
@@ -574,10 +575,19 @@ AC_SUBST(BLD_ARCH)
 bash getversion > VERSION
 GP_VERSION=`cat VERSION`
 
+GP_VERSION_SHORT=`bash ./getversion --short`
+AC_SUBST(GP_VERSION_SHORT)
+
 GP_VERSION_IN="src/include/catalog/gp_version.in"
 GP_VERSION_HEADER="src/include/catalog/gp_version.h"
 if grep '\$\$' $GP_VERSION_IN > /dev/null 2>&1 ; then
     sed "s,\\$.*\\$\\$,$GP_VERSION," $GP_VERSION_IN > $GP_VERSION_HEADER
+fi
+
+GP_BASH_VERSION_IN="gpMgmt/bin/lib/gp_bash_version.sh.in"
+GP_BASH_VERSION_SH="gpMgmt/bin/lib/gp_bash_version.sh"
+if grep '##' $GP_BASH_VERSION_IN > /dev/null 2>&1 ; then
+    sed "s,##.*##,$GP_VERSION," $GP_BASH_VERSION_IN > $GP_BASH_VERSION_SH
 fi
 
 # Create compiler version string
@@ -587,7 +597,7 @@ else
   cc_string=$CC
 fi
 AC_DEFINE_UNQUOTED(PG_VERSION_STR,
-                   ["PostgreSQL $PG_VERSION (Greenplum Database $GP_VERSION) on $host, compiled by $cc_string"],
+                   ["PostgreSQL $PG_PACKAGE_VERSION (Greenplum Database $GP_VERSION) on $host, compiled by $cc_string"],
                    [A string containing the version number, platform, and C compiler])
 
 AC_DEFINE_UNQUOTED(GP_VERSION,
@@ -650,7 +660,7 @@ PGAC_ARG_BOOL(enable, testutils, no, [  --enable-testutils      enable testing u
 #
 # Enable Greenplum ORCA optimizer
 #
-PGAC_ARG_BOOL(enable, orca, no, [  --enable-orca           enable ORCA optimizer],
+PGAC_ARG_BOOL(enable, orca, yes, [  --disable-orca          disable ORCA optimizer],
               [AC_DEFINE([USE_ORCA], 1,
                          [Define to 1 to build with Greenplum ORCA optimizer. (--enable-orca)])])
 AC_MSG_RESULT([checking whether to build with ORCA... $enable_orca])
@@ -719,6 +729,29 @@ PGAC_ARG_BOOL(enable, mapreduce, no, [  --enable-mapreduce      enable Greenplum
 			             [Define to 1 to build with Mapreduce capabilities (--enable-mapreduce)])])
 AC_MSG_RESULT([checking whether to build with Greenplum Mapreduce... $enable_mapreduce])
 AC_SUBST(enable_mapreduce)
+
+#
+# gpcloud, enabled by default
+#
+PGAC_ARG_BOOL(enable, gpcloud, yes, [  --disable-gpcloud       disable gpcloud support],
+              [AC_DEFINE([USE_GPCLOUD], 1,
+			             [Define to 1 to build with gpcloud (--enable-gpcloud)])])
+AC_MSG_RESULT([checking whether to build with gpcloud... $enable_gpcloud])
+AC_SUBST(enable_gpcloud)
+
+AS_IF([test "$enable_gpcloud" = yes],
+[ # then
+  AX_CXX_COMPILE_STDCXX([11], [noext], [mandatory])
+]) # fi
+
+#
+# Enable segment WAL replication
+#
+PGAC_ARG_BOOL(enable, segwalrep, no, [  --enable-segwalrep      enable segment WAL replication ],
+              [AC_DEFINE([USE_SEGWALREP], 1,
+                         [Define to 1 to enable segment WAL replication. (--enable-segwalrep)])])
+AC_MSG_RESULT([checking whether to build with segment WAL replication... $enable_segwalrep])
+AC_SUBST(enable_segwalrep)
 
 #
 # Include directories
@@ -1287,12 +1320,15 @@ fi
 ## Header files
 ##
 
+AC_INCLUDES_DEFAULT
+
 # Check for Greenplum Query Optimizer (orca) and supporting Greenplum OS header files.
-AS_IF([test "$enable_orca" = yes],
-[ # then
-  AC_CHECK_HEADERS(gpopt/init.h,  [], [AC_MSG_ERROR([gpopt/init.h GPOPT header file is required for Greenplum Query Optimizer (orca)])])
-  AC_CHECK_HEADERS(gpos/config.h, [], [AC_MSG_ERROR([gpos/config.h GPOS header file is required for Greenplum Query Optimizer (orca)])])
-]) # fi
+if test "$enable_orca" = yes; then
+  PGAC_CHECK_ORCA_HEADERS
+  PGAC_CHECK_ORCA_XERCES
+  PGAC_CHECK_ORCA_LIBS
+  PGAC_CHECK_ORCA_VERSION
+fi
 
 dnl sys/socket.h is required by AC_FUNC_ACCEPT_ARGTYPES
 AC_CHECK_HEADERS([atomic.h crypt.h dld.h endian.h fp_class.h getopt.h ieeefp.h ifaddrs.h langinfo.h mbarrier.h poll.h pwd.h sys/ioctl.h sys/ipc.h sys/poll.h sys/pstat.h sys/resource.h sys/select.h sys/sem.h sys/shm.h sys/socket.h sys/sockio.h sys/tas.h sys/time.h sys/un.h termios.h ucred.h utime.h wchar.h wctype.h kernel/OS.h kernel/image.h SupportDefs.h])
@@ -1458,6 +1494,9 @@ if test "$with_rt" = yes; then
 fi
 
 if test "$enable_mapreduce" = yes; then
+  if test "$with_perl" = no; then
+    AC_MSG_ERROR([Greenplum Mapreduce requires Perl, reconfigure with --with-perl])
+  fi
   AC_CHECK_HEADERS(yaml.h, [], [AC_MSG_ERROR([YAML includes required for Greenplum Mapreduce])])
 fi
 

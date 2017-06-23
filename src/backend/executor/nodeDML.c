@@ -168,10 +168,23 @@ ExecInitDML(DML *node, EState *estate, int eflags)
 	 * Both input and output of the junk filter include dropped attributes, so
 	 * the junk filter doesn't need to do anything special there about them
 	 */
-	TupleDesc cleanTupType = CreateTupleDescCopy(dmlstate->ps.state->es_result_relation_info->ri_RelationDesc->rd_att); 
+
 	dmlstate->junkfilter = ExecInitJunkFilter(node->plan.targetlist,
-			cleanTupType,
+			dmlstate->ps.state->es_result_relation_info->ri_RelationDesc->rd_att->tdhasoid,
 			dmlstate->cleanedUpSlot);
+
+	/*
+	 * We don't maintain typmod in the targetlist, so we should fixup the
+	 * junkfilter to use the same tuple descriptor as the result relation.
+	 * Otherwise the mismatch of tuple descriptor will cause a break in
+	 * ExecInsert()->reconstructMatchingTupleSlot().
+	 */
+	TupleDesc cleanTupType = CreateTupleDescCopy(dmlstate->ps.state->es_result_relation_info->ri_RelationDesc->rd_att);
+
+	ExecSetSlotDescriptor(dmlstate->junkfilter->jf_resultSlot, cleanTupType);
+
+	ReleaseTupleDesc(dmlstate->junkfilter->jf_cleanTupType);
+	dmlstate->junkfilter->jf_cleanTupType = cleanTupType;
 
 	if (estate->es_instrument)
 	{
@@ -213,11 +226,7 @@ initGpmonPktForDML(Plan *planNode, gpmon_packet_t *gpmon_pkt, EState *estate)
 {
 	Assert(planNode != NULL && gpmon_pkt != NULL && IsA(planNode, DML));
 
-	PerfmonNodeType type = PMNT_DML;
-
-	InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate, type,
-								 (int64)planNode->plan_rows,
-								 NULL);
+	InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);
 }
 
 /* EOF */

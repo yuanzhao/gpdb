@@ -79,7 +79,7 @@ UPD = os.path.abspath(mkpath('..'))
 if UPD not in sys.path:
     sys.path.append(UPD)
 
-DBNAME = "gptest"
+DBNAME = "postgres"
 USER = os.environ.get( "LOGNAME" )
 HOST = socket.gethostname()
 GPHOME = os.getenv("GPHOME")
@@ -414,7 +414,7 @@ class GPLoad_FormatOpts_TestCase(unittest.TestCase):
 
     def test_00_gpload_formatOpts_setup(self):
         "0  gpload setup"
-        for num in range(1,20):
+        for num in range(1,22):
            f = open(mkpath('query%d.sql' % num),'w')
            f.write("\! gpload -f "+mkpath('config/config_file')+ " -d reuse_gptest\n"+"\! gpload -f "+mkpath('config/config_file')+ " -d reuse_gptest\n")
            f.close()
@@ -540,6 +540,28 @@ class GPLoad_FormatOpts_TestCase(unittest.TestCase):
         write_config_file(reuse_flag='true',formatOpts='csv',file='data_file.csv',table='csvtable',format='csv',delimiter="','",quote="E'\x26'")
         self.doTest(18)
 
+    def test_19_gpload_formatOpts_escape(self):
+        "19  gpload formatOpts escape '\\' with reuse"
+        copy_data('external_file_01.txt','data_file.txt')
+        file = mkpath('setup.sql')
+        runfile(file)
+        write_config_file(reuse_flag='true',formatOpts='text',file='data_file.txt',table='texttable',escape='\\')
+        self.doTest(19)
+
+    def test_20_gpload_formatOpts_escape(self):
+        "20  gpload formatOpts escape '\\' with reuse"
+        copy_data('external_file_01.txt','data_file.txt')
+        write_config_file(reuse_flag='true',formatOpts='text',file='data_file.txt',table='texttable',escape= '\x5C')
+        self.doTest(20)
+
+    def test_21_gpload_formatOpts_escape(self):
+        "21  gpload formatOpts escape E'\\\\' with reuse"
+        copy_data('external_file_01.txt','data_file.txt')
+        write_config_file(reuse_flag='true',formatOpts='text',file='data_file.txt',table='texttable',escape="E'\\\\'")
+        self.doTest(21)
+
 if __name__ == '__main__':
     suite = unittest.TestLoader().loadTestsFromTestCase(GPLoad_FormatOpts_TestCase)
-    unittest.TextTestRunner(verbosity=2).run(suite)
+    runner = unittest.TextTestRunner(verbosity=2)
+    ret = not runner.run(suite).wasSuccessful()
+    sys.exit(ret)

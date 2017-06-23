@@ -44,9 +44,7 @@ initGpmonPktForPartitionSelector(Plan *planNode, gpmon_packet_t *gpmon_pkt, ESta
 {
 	Assert(planNode != NULL && gpmon_pkt != NULL && IsA(planNode, PartitionSelector));
 
-	InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate, PMNT_PartitionSelector,
-							(int64)planNode->plan_rows,
-							NULL);
+	InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);
 }
 
 /* ----------------------------------------------------------------
@@ -185,6 +183,17 @@ ExecPartitionSelector(PartitionSelectorState *node)
 		if (TupIsNull(inputSlot))
 		{
 			/* no more tuples from outerPlan */
+
+			/*
+			 * Make sure we have an entry for this partition selector in
+			 * dynamicTableScanInfo. Normally, this would've been done the
+			 * first time a partition is selected, but we must ensure that
+			 * there is an entry even if no partitions were selected.
+			 * (The traditional Postgres planner uses this method.)
+			 */
+			if (ps->partTabTargetlist)
+				InsertPidIntoDynamicTableScanInfo(estate, ps->scanId, InvalidOid, ps->selectorId);
+
 			return NULL;
 		}
 	}
@@ -220,17 +229,9 @@ ExecPartitionSelector(PartitionSelectorState *node)
 									slot_get_isnull(slot),
 									slot->tts_tupleDescriptor,
 									node->accessMethods);
-		if (oids != NIL)
+		foreach (lc, oids)
 		{
-			foreach (lc, oids)
-			{
-				InsertPidIntoDynamicTableScanInfo(estate, ps->scanId, lfirst_oid(lc), ps->selectorId);
-			}
-		}
-		else
-		{
-			/* no partitions matched. */
-			InsertPidIntoDynamicTableScanInfo(estate, ps->scanId, InvalidOid, ps->selectorId);
+			InsertPidIntoDynamicTableScanInfo(estate, ps->scanId, lfirst_oid(lc), ps->selectorId);
 		}
 	}
 	else

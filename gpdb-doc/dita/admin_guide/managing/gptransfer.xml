@@ -19,15 +19,15 @@
       views, roles, user-defined functions, and resource queues. Configuration files, including
         <codeph>postgres.conf</codeph> and <codeph>pg_hba.conf</codeph>, must be transferred
       manually by an administrator. Extensions installed in the database with
-      <codeph>gppkg</codeph>, such as MADlib and programming language extensions, must be installed
-      in the destination database by an administrator. </p>
+      <codeph>gppkg</codeph>, such as MADlib, must be installed in the destination database by an
+      administrator. </p>
     <p>See the <cite>Greenplum Database Utility Guide</cite> for complete syntax and usage
       information for the <codeph>gptransfer</codeph> utility. </p>
     <section>
       <title>Prerequisites</title>
       <ul id="ul_wkb_xqd_cp">
-        <li>The <codeph>gptransfer</codeph> utility can only be used with Greenplum Database,
-          including the Dell EMC DCA appliance. Pivotal HDB is not supported as a source or destination. </li>
+        <li>The <codeph>gptransfer</codeph> utility can only be used with Greenplum Database. Apache
+          HAWQ is not supported as a source or destination. </li>
         <li>The source and destination Greenplum clusters must both be version 4.2 or higher.</li>
         <li>At least one Greenplum instance must include the <codeph>gptransfer</codeph> utility in
           its distribution. If neither the source or destination includes

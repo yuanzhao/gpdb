@@ -348,6 +348,7 @@ class GpInjectFaultProgram:
 			      "checkpoint (inject fault before checkpoint is taken), " \
 			      "change_tracking_compacting_report (report if compacting is in progress), " \
 			      "change_tracking_disable (inject fault before fsync to Change Tracking log files), " \
+			      "transaction_start_under_entry_db_singleton (inject fault during transaction start with DistributedTransactionContext in ENTRY_DB_SINGLETON mode), " \
 			      "transaction_abort_after_distributed_prepared (abort prepared transaction), " \
 			      "transaction_commit_pass1_from_create_pending_to_created, " \
 			      "transaction_commit_pass1_from_drop_in_memory_to_drop_pending, " \
@@ -389,7 +390,6 @@ class GpInjectFaultProgram:
 			      "workfile_write_failure (inject fault to simulate workfile write failure), " \
                   "workfile_hashjoin_failure (inject fault before we close workfile in ExecHashJoinNewBatch), "\
 			      "update_committed_eof_in_persistent_table (inject fault before committed EOF is updated in gp_persistent_relation_node for Append Only segment files), " \
-			      "exec_simple_query_end_command (inject fault before EndCommand in exec_simple_query), " \
 			      "multi_exec_hash_large_vmem (allocate large vmem using palloc inside MultiExecHash to attempt to exceed vmem limit), " \
 			      "execsort_before_sorting (inject fault in nodeSort after receiving all tuples and before sorting), " \
 			      "execsort_mksort_mergeruns (inject fault in MKSort during the mergeruns phase), " \
@@ -409,6 +409,7 @@ class GpInjectFaultProgram:
 			      "vacuum_full_before_truncate (inject fault before truncate in vacuum full), " \
 			      "vacuum_full_after_truncate (inject fault after truncate in vacuum full), " \
 			      "vacuum_relation_end_of_first_round (inject fault at the end of first round of vacuumRelation loop), " \
+			      "vacuum_relation_open_relation_during_drop_phase (inject fault during open relation of drop phase of vacuumRelation loop), " \
 			      "rebuild_pt_db (inject fault while rebuilding persistent tables (for each db)), " \
 			      "procarray_add (inject fault while adding PGPROC to procarray), " \
 			      "exec_hashjoin_new_batch (inject fault before switching to a new batch in Hash Join), " \
@@ -421,7 +422,7 @@ class GpInjectFaultProgram:
                   "process_startup_packet (inject fault when processing startup packet during backend initialization), " \
                   "quickdie (inject fault when auxiliary processes quitting), " \
                   "after_one_slice_dispatched (inject fault after one slice was dispatched when dispatching plan), " \
-                  "cursor_qe_reader_after_snapshot (inject fault after QE READER has populated snashot for cursor)" \
+                  "qe_got_snapshot_and_interconnect(inject fault after qe got snapshot and interconnect)" \
 			      "fsync_counter (inject fault to count buffers fsync'ed by checkpoint process), " \
 			      "bg_buffer_sync_default_logic (inject fault to 'skip' in order to flush all buffers in BgBufferSync()), " \
                   "finish_prepared_after_record_commit_prepared (inject fault in FinishPreparedTransaction() after recording the commit prepared record), " \

@@ -58,7 +58,7 @@ static const bool gpdb_exec_ddl(PGconn* conn, const char* ddl_query)
 	return errmsg == NULL;
 }
 
-
+// creates a connection and then runs the query
 static const char* gpdb_exec(PGconn** pconn, PGresult** pres, const char* query)
 {
 	const char *connstr = "dbname='" GPMON_DB "' user='" GPMON_DBUSER
@@ -66,10 +66,11 @@ static const char* gpdb_exec(PGconn** pconn, PGresult** pres, const char* query)
 	PGconn *conn = NULL;
 
 	conn = PQconnectdb(connstr);
+	// early assignment to pconn guarantees connection available to get freed by the caller
+	*pconn = conn;
+
 	if (PQstatus(conn) != CONNECTION_OK)
 		return PQerrorMessage(conn);
-
-	*pconn = conn;
 
 	return gpdb_exec_only(conn, pres, query);
 }
@@ -328,22 +329,11 @@ void initializeHostInfoDataFromFileEntry(apr_pool_t* tmp_pool, struct hostinfo_h
 	holder->hostname = apr_pstrdup(tmp_pool, primary_hostname);
 	CHECKMEM(holder->hostname);
 
-	if (smon_bin_dir && smon_log_dir)
-	{
+	holder->smon_dir = apr_pstrdup(tmp_pool, smon_bin_dir);
+	CHECKMEM(holder->smon_dir);
 
-		holder->smon_dir = apr_pstrdup(tmp_pool, smon_bin_dir);
-		CHECKMEM(holder->smon_dir);
-
-		holder->datadir = apr_pstrdup(tmp_pool, smon_log_dir);
-		CHECKMEM(holder->datadir);
-
-	}
-	else
-	{
-		holder->smon_dir = NULL;
-		holder->datadir = apr_pstrdup(tmp_pool, "/opt/dca/var/gpsmon");
-		CHECKMEM(holder->datadir);
-	}
+	holder->datadir = apr_pstrdup(tmp_pool, smon_log_dir);
+	CHECKMEM(holder->datadir);
 
 	switch(hostType)
 	{
@@ -382,127 +372,6 @@ void initializeHostInfoDataFromFileEntry(apr_pool_t* tmp_pool, struct hostinfo_h
 		firstAddress = 0;
 	}
 }
-
-
-void process_line_in_devices_cnf(apr_pool_t* tmp_pool, apr_hash_t* htab, char* line)
-{
-	if (!line)
-	{
-		gpmon_warningx(FLINE, 0, "Line in devices file is null, skipping");
-		return;
-	}
-
-	char* host;
-	char* device;
-	char* category;
-	char primary_hostname[64];
-
-	char* location = strchr(line, '#');
-	if (location)
-	{
-		*location = 0;
-		// remove comments from the line
-	}
-
-	if (!line)
-	{
-		gpmon_warningx(FLINE, 0, "Line in devices file is null after removing comments, skipping");
-		return;
-	}
-
-	// we do these in reverse order so inserting null chars does not prevent finding other tokens
-	if (find_token_in_config_string(line, &host, "Host"))
-	{
-		return;
-	}
-
-	if (find_token_in_config_string(line, &device, "Device"))
-	{
-		return;
-	}
-
-	if (find_token_in_config_string(line, &category, "Category"))
-	{
-		return;
-	}
-
-	int monitored_device = 0;
-	int hostType = 0;
-	if (strcmp(device, "Spidey0001") == 0)
-	{
-		monitored_device = 1;
-		hostType = GPMON_HOSTTTYPE_HDW;
-	}
-
-	if (strcmp(device, "Spidey0002") == 0)
-	{
-		monitored_device = 1;
-		hostType = GPMON_HOSTTTYPE_HDM;
-	}
-
-	if (strcmp(device, "Spidey0003") == 0)
-	{
-		monitored_device = 1;
-		hostType = GPMON_HOSTTTYPE_HBW;
-	}
-
-	if (strcmp(device, "EtlHost") == 0)
-	{
-		monitored_device = 1;
-		hostType = GPMON_HOSTTTYPE_ETL;
-	}
-
-	//For V2
-	if (strcmp(device, "Locust0001") == 0)
-	{
-		monitored_device = 1;
-		hostType = GPMON_HOSTTTYPE_HDW;
-	}
-
-	if (strcmp(device, "Locust0002") == 0)
-	{
-		monitored_device = 1;
-		hostType = GPMON_HOSTTTYPE_HDM;
-	}
-
-	if (strcmp(device, "Locust0003") == 0)
-	{
-		monitored_device = 1;
-		hostType = GPMON_HOSTTTYPE_HDC;
-	}
-
-	if (strcmp(device, "EtlHostV2") == 0)
-	{
-		monitored_device = 1;
-		hostType = GPMON_HOSTTTYPE_ETL;
-	}
-
-	// segment host, switch, etc ... we are only adding additional hosts required for performance monitoring
-	if (!monitored_device)
-		return;
-
-	strncpy(primary_hostname, host, sizeof(primary_hostname));
-	primary_hostname[sizeof(primary_hostname) - 1] = 0;
-	location = strchr(primary_hostname, ',');
-	if (location)
-		*location = 0;
-
-	struct hostinfo_holder_t* hostinfo_holder = apr_hash_get(htab, primary_hostname, APR_HASH_KEY_STRING);
-	if (hostinfo_holder)
-	{
-		gpmon_warningx(FLINE, 0, "Host '%s' is duplicated in devices.cnf", primary_hostname);
-		return;
-	}
-
-	// OK Lets add this record at this point
-	hostinfo_holder = apr_pcalloc(tmp_pool, sizeof(struct hostinfo_holder_t));
-	CHECKMEM(hostinfo_holder);
-
-	apr_hash_set(htab, primary_hostname, APR_HASH_KEY_STRING, hostinfo_holder);
-
-	initializeHostInfoDataFromFileEntry(tmp_pool, hostinfo_holder, primary_hostname, host, hostType, NULL, NULL);
-}
-
 
 void process_line_in_hadoop_cluster_info(apr_pool_t* tmp_pool, apr_hash_t* htab, char* line, char* smon_bin_location, char* smon_log_location)
 {
@@ -595,40 +464,6 @@ void process_line_in_hadoop_cluster_info(apr_pool_t* tmp_pool, apr_hash_t* htab,
 	apr_hash_set(htab, primary_hostname, APR_HASH_KEY_STRING, hostinfo_holder);
 
 	initializeHostInfoDataFromFileEntry(tmp_pool, hostinfo_holder, primary_hostname, host, hostType, smon_bin_location, smon_log_location);
-}
-
-//Return 1 if not an appliance and 0 if an appliance
-int get_appliance_hosts_and_add_to_hosts(apr_pool_t* tmp_pool, apr_hash_t* htab)
-{
-	// open devices.cnf and then start reading the data
-	// populate all relevant hosts: Spidey0001, Spidey0002, EtlHost
-	FILE* fd = fopen(PATH_TO_APPLIANCE_VERSION_FILE, "r");
-	if (!fd)
-	{
-		TR0(("not an appliance ... not reading devices.cnf\n"));
-		return 1;
-	}
-	fclose(fd);
-
-	fd = fopen(PATH_TO_APPLAINCE_DEVICES_FILE, "r");
-	if (!fd)
-	{
-		gpmon_warningx(FLINE, 0, "can not read %s, ignoring\n", PATH_TO_APPLAINCE_DEVICES_FILE);
-		return 0;
-	}
-
-	char* line;
-	char buffer[1024];
-
-	while (NULL != fgets(buffer, sizeof(buffer), fd))
-	{
-		// remove new line
-		line = gpmon_trim(buffer);
-		process_line_in_devices_cnf(tmp_pool, htab, line);
-	}
-
-	fclose(fd);
-	return 0;
 }
 
 //Return 1 if not a hadoop software only cluster and 0 it is a hadoop software only cluster
@@ -776,12 +611,8 @@ void gpdb_get_hostlist(int* hostcnt, host_t** host_table, apr_pool_t* global_poo
 
 		}
 
-		// if we have any appliance specific hosts such as hadoop nodes add them to the hash table
-		if (get_appliance_hosts_and_add_to_hosts(pool, htab))
-		{
-			TR0(("Not an appliance: checking for SW Only hadoop hosts.\n"));
-			get_hadoop_hosts_and_add_to_hosts(pool, htab, opt); // Not an appliance, so check for SW only hadoop nodes.
-		}
+		TR0(("checking for SW Only hadoop hosts.\n"));
+		get_hadoop_hosts_and_add_to_hosts(pool, htab, opt);
 
 		unique_hosts = apr_hash_count(htab);
 
@@ -945,17 +776,18 @@ static void check_and_add_partition(PGconn* conn, const char* tbl, int begin_yea
 		// this partition does not exist, create it
 
 		snprintf(qry, QRYBUFSIZ, ADD_QRYFMT, tbl, begin_year, begin_month, end_year, end_month);
+		TR0(("Add partition table '%s\n'", qry));
 		errmsg = gpdb_exec_only(conn, &result, qry);
 		if (errmsg)
 		{
-			gpmon_warning(FLINE, "partion add response from server: %s\n", errmsg);
+			gpmon_warning(FLINE, "partition add response from server: %s\n", errmsg);
 		}
 
 		PQclear(result);
 	}
 }
 
-// Drop pretty old partitons if exists.
+// Drop old partitions if partition_age option is set.
 static void drop_old_partitions(PGconn* conn, const char* tbl, mmon_options_t *opt)
 {
 	const int QRYBUFSIZ = 1024;
@@ -970,13 +802,14 @@ static void drop_old_partitions(PGconn* conn, const char* tbl, mmon_options_t *o
 
 	int partition_age = opt->partition_age;
 
-	if (partition_age <= 0)
+	if (partition_age <= 0) {
+		TR0(("partition_age turned off\n"));
 		return;
+	}
 
 	// partition_age + 1 because we always add 2 partitions for the boundary case
 	snprintf(qry, QRYBUFSIZ, SELECT_QRYFMT, tbl, partition_age + 1);
 
-	TR2(("drop partition: executing select query '%s\n'", qry));
 	errmsg = gpdb_exec_only(conn, &result, qry);
 	if (errmsg)
 	{
@@ -991,13 +824,25 @@ static void drop_old_partitions(PGconn* conn, const char* tbl, mmon_options_t *o
 			PGresult* dropResult = NULL;
 			char* partitiontablename  = PQgetvalue(result, i, 0);
 			char* partitionrangestart = PQgetvalue(result, i, 1);
-			snprintf(qry, QRYBUFSIZ, DROP_QRYFMT, tbl, partitionrangestart);
-			TR0(("Dropped partition table '%s\n'", partitiontablename));
+
+			// partitionrangestart comes out looking like `'2017-02-01 00:00:00'::timestamp(0) without time zone`
+			//                                       or   `'2010-01-01 00:00:00-08'::timestamp with time zone`
+			char *unwanted = strstr(partitionrangestart, "::" );
+
+			size_t substring_size = unwanted - partitionrangestart + 1;
+			char *substring = (char *) malloc(substring_size);
+			memcpy(substring, partitionrangestart, substring_size);
+			substring[substring_size - 1] = '\0';
+
+			snprintf(qry, QRYBUFSIZ, DROP_QRYFMT, tbl, substring);
+
+			free(substring);
+			TR0(("Dropping partition table '%s'\n", partitiontablename));
 			errmsg = gpdb_exec_only(conn, &dropResult, qry);
 			PQclear(dropResult);
 			if (errmsg)
 			{
-				gpmon_warning(FLINE, "drop partion: drop query '%s' response from server: %s\n", qry, errmsg);
+				gpmon_warning(FLINE, "drop partition: drop query '%s' response from server: %s\n", qry, errmsg);
 				break;
 			}
 		}
@@ -1069,62 +914,17 @@ static apr_status_t check_partition(const char* tbl, apr_pool_t* pool, PGconn* c
 	return APR_SUCCESS;
 }
 
-apr_status_t gpdb_harvest_healthdata()
-{
-	PGconn* conn = 0;
-	PGresult* result = 0;
-	const char* QRY = "insert into health_history select * from health_now;";
-	const char* errmsg;
-	apr_status_t res = APR_SUCCESS;
-
-	errmsg = gpdb_exec(&conn, &result, QRY);
-	if (errmsg)
-	{
-		res = 1;
-		gpmon_warningx(FLINE, 0, "---- ARCHIVING HISTORICAL HEALTH DATA FAILED ---- on query %s with error %s\n", QRY, errmsg);
-	}
-	else
-	{
-		TR1(("load completed OK: health\n"));
-	}
-
-	PQclear(result);
-	PQfinish(conn);
-	return res;
-}
-
 static apr_status_t harvest(const char* tbl, apr_pool_t* pool, PGconn* conN)
 {
 	PGconn* conn = 0;
 	PGresult* result = 0;
-	const int QRYBUFSIZ = 1792;
+	const int QRYBUFSIZ = 255;
 	char qrybuf[QRYBUFSIZ];
 	const char* QRYFMT = "insert into %s_history select * from _%s_tail;";
 	const char* errmsg;
 	apr_status_t res = APR_SUCCESS;
 
-	if (strcmp(tbl, "iterators") == 0)
-	{ //this is to leave the cpu percentage out of iterators history
-		const char* ITERQRYFMT = "insert into %s_history (ctime, tmid, ssid, ccnt, segid, pid, nid, pnid, hostname, ntype, nstatus, tstart, "
-		"tduration, pmemsize, pmemmax, memsize, memresid, memshare, cpu_elapsed, cpu_currpct, phase, rows_out, rows_out_est, m0_name, m0_unit, m0_val, "
-		"m0_est, m1_name, m1_unit, m1_val, m1_est, m2_name, m2_unit, m2_val, m2_est, m3_name, m3_unit, m3_val, m3_est, m4_name, m4_unit, "
-		"m4_val, m4_est, m5_name, m5_unit, m5_val, m5_est, m6_name, m6_unit, m6_val, m6_est, m7_name, m7_unit, m7_val, m7_est, m8_name, "
-		"m8_unit, m8_val, m8_est, m9_name, m9_unit, m9_val, m9_est, m10_name, m10_unit, m10_val, m10_est, m11_name, m11_unit, m11_val, "
-		"m11_est, m12_name, m12_unit, m12_val, m12_est, m13_name, m13_unit, m13_val, m13_est, m14_name, m14_unit, m14_val, m14_est, m15_name, "
-		"m15_unit, m15_val, m15_est, t0_name, t0_val) select ctime, tmid, ssid, ccnt, segid, pid, nid, pnid, hostname, ntype, nstatus, tstart, "
-		"tduration, pmemsize, pmemmax, memsize, memresid, memshare, cpu_elapsed, 0, phase, rows_out, rows_out_est, m0_name, m0_unit, m0_val, "
-		"m0_est, m1_name, m1_unit, m1_val, m1_est, m2_name, m2_unit, m2_val, m2_est, m3_name, m3_unit, m3_val, m3_est, m4_name, m4_unit, "
-		"m4_val, m4_est, m5_name, m5_unit, m5_val, m5_est, m6_name, m6_unit, m6_val, m6_est, m7_name, m7_unit, m7_val, m7_est, m8_name, "
-		"m8_unit, m8_val, m8_est, m9_name, m9_unit, m9_val, m9_est, m10_name, m10_unit, m10_val, m10_est, m11_name, m11_unit, m11_val, "
-		"m11_est, m12_name, m12_unit, m12_val, m12_est, m13_name, m13_unit, m13_val, m13_est, m14_name, m14_unit, m14_val, m14_est, "
-		"m15_name, m15_unit, m15_val, m15_est, t0_name, t0_val from _%s_tail;";
-
-		snprintf(qrybuf, QRYBUFSIZ, ITERQRYFMT, tbl, tbl);
-	}
-	else
-	{
-		snprintf(qrybuf, QRYBUFSIZ, QRYFMT, tbl, tbl);
-	}
+	snprintf(qrybuf, QRYBUFSIZ, QRYFMT, tbl, tbl);
 
 	errmsg = gpdb_exec(&conn, &result, qrybuf);
 	if (errmsg)
@@ -1261,7 +1061,7 @@ apr_status_t call_for_each_table(eachtablefunc, apr_pool_t*, PGconn*);
 apr_status_t call_for_each_table_with_opt(eachtablefuncwithopt, apr_pool_t*, PGconn*, mmon_options_t*);
 
 
-char* all_tables[] = { "system", "queries", "iterators", "database", "segment", "filerep", "diskspace" };
+char* all_tables[] = { "system", "queries", "database", "segment", "diskspace" };
 
 apr_status_t call_for_each_table(eachtablefunc func, apr_pool_t* pool, PGconn* conn)
 {
@@ -1507,43 +1307,34 @@ void gpdb_import_alert_log(apr_pool_t *pool)
 /* insert _tail data into history table */
 apr_status_t gpdb_check_partitions(mmon_options_t *opt)
 {
-	// health is not a full table and needs to be added to the list
+	apr_status_t result;
 
-	apr_status_t r1, r2, r3, r4;
-
-	// open a connection
-	PGconn* conn = NULL;
+	PGconn *conn = NULL;
 	conn = PQconnectdb(GPDB_CONNECTION_STRING);
 
-	if (PQstatus(conn) != CONNECTION_OK)
-	{
+	if (PQstatus(conn) != CONNECTION_OK) {
 		gpmon_warning(
-			FLINE,
-			"error creating GPDB client connection to dynamically "
-			"check/create gpperfmon partitions: %s",
-		PQerrorMessage(conn));
+				FLINE,
+				"error creating GPDB client connection to dynamically "
+						"check/create gpperfmon partitions: %s",
+				PQerrorMessage(conn));
+		result = APR_EINVAL;
+	} else {
+		result = call_for_each_table_with_opt(check_partition, NULL, conn, opt);
 
-		return APR_EINVAL;
+		// make sure to run check_partition even if we just got a failure from the previous call
+		apr_status_t temp_result;
+		temp_result = check_partition("log_alert", NULL, conn, opt);
+
+		// use the first error that occurred, if any
+		if (result == APR_SUCCESS) {
+			result = temp_result;
+		}
 	}
-
-	r1 = check_partition("health", NULL, conn, opt);
-
-	r3 = call_for_each_table_with_opt(check_partition, NULL, conn, opt);
-
-	r4 = check_partition("log_alert", NULL, conn, opt);
 
 	// close connection
 	PQfinish(conn);
-
-	if (r1 != APR_SUCCESS)
-	{
-		return r1;
-	}
-	else if (r3 != APR_SUCCESS)
-	{
-		return r3;
-	}
-	return r4;
+	return result;
 }
 
 static void convert_tuples_to_hash(PGresult *result, apr_hash_t *hash, apr_pool_t *pool)

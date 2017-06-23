@@ -12,7 +12,7 @@
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/parser/gram.y,v 2.606 2008/02/07 21:07:55 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/parser/gram.y,v 2.625 2008/10/04 21:56:54 tgl Exp $
  *
  * HISTORY
  *	  AUTHOR			DATE			MAJOR EVENT
@@ -177,7 +177,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 		AlterGroupStmt
 		AlterObjectSchemaStmt AlterOwnerStmt AlterQueueStmt AlterSeqStmt AlterTableStmt
 		AlterExtensionStmt AlterExtensionContentsStmt
-		AlterUserStmt AlterUserSetStmt AlterRoleStmt AlterRoleSetStmt
+		AlterUserStmt AlterUserSetStmt AlterResourceGroupStmt AlterRoleStmt AlterRoleSetStmt
 		AnalyzeStmt ClosePortalStmt ClusterStmt CommentStmt
 		ConstraintsSetStmt CopyStmt CreateAsStmt CreateCastStmt
 		CreateDomainStmt CreateExtensionStmt CreateExternalStmt CreateFileSpaceStmt CreateGroupStmt
@@ -247,6 +247,9 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 
 %type <list>	OptQueueList
 %type <defelt>	OptQueueElem
+
+%type <list>	OptResourceGroupList
+%type <defelt>	OptResourceGroupElem
 
 %type <str>		OptSchemaName
 %type <list>	OptSchemaEltList
@@ -456,10 +459,6 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 				opt_table_partition_split_into
 %type <boolean>	opt_comma
 %type <node> 	OptTabPartitionStorageAttr
-
-%type <node> 	common_table_expr
-%type <with> 	with_clause
-%type <list>	cte_list
 %type <node>	opt_time
 
 %type <node>	column_reference_storage_directive
@@ -472,6 +471,10 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 %type <node>	xmlexists_argument
 %type <ival>	document_or_content
 %type <boolean> xml_whitespace_option
+
+%type <node> 	common_table_expr
+%type <with> 	with_clause
+%type <list>	cte_list
 
 
 /*
@@ -492,7 +495,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 	CACHE CALLED CASCADE CASCADED CASE CAST CHAIN CHAR_P
 	CHARACTER CHARACTERISTICS CHECK CHECKPOINT CLASS CLOSE
 	CLUSTER COALESCE COLLATE COLUMN COMMENT COMMIT
-	COMMITTED CONCURRENTLY CONFIGURATION CONNECTION CONSTRAINT CONSTRAINTS
+	COMMITTED CONCURRENCY CONCURRENTLY CONFIGURATION CONNECTION CONSTRAINT CONSTRAINTS
 	CONTENT_P CONVERSION_P COPY COST CREATE CREATEDB
 	CREATEROLE CREATEUSER CROSS CSV CURRENT_P CURRENT_DATE CURRENT_ROLE
 	CURRENT_TIME CURRENT_TIMESTAMP CURRENT_USER CURSOR CYCLE
@@ -539,9 +542,9 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 
 	QUOTE
 
-	READ REAL REASSIGN RECHECK REFERENCES REINDEX RELATIVE_P RELEASE RENAME
-	REPEATABLE REPLACE REPLICA RESET RESTART RESTRICT RETURNING RETURNS REVOKE
-	RIGHT ROLE ROLLBACK ROW ROWS RULE
+	READ REAL REASSIGN RECHECK RECURSIVE REFERENCES REINDEX RELATIVE_P RELEASE
+	RENAME REPEATABLE REPLACE REPLICA RESET RESTART RESTRICT RETURNING RETURNS
+	REVOKE RIGHT ROLE ROLLBACK ROW ROWS RULE
 
 	SAVEPOINT SCHEMA SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE
 	SERIALIZABLE SESSION SESSION_USER SET SETOF SHARE
@@ -600,7 +603,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 
 	QUEUE
 
-	RANDOMLY RANGE READABLE READS RECURSIVE REF REJECT_P RESOURCE
+	RANDOMLY RANGE READABLE READS REF REJECT_P RESOURCE
 	ROLLUP ROOTPARTITION
 
 	SCATTER SEGMENT SETS SPLIT SQL SUBPARTITION SUBPARTITIONS
@@ -687,6 +690,7 @@ static Node *makeIsNotDistinctFromNode(Node *expr, int position);
 			%nonassoc COMMENT
 			%nonassoc COMMIT
 			%nonassoc COMMITTED
+			%nonassoc CONCURRENCY
 			%nonassoc CONCURRENTLY
 			%nonassoc CONNECTION
 			%nonassoc CONSTRAINTS
@@ -1028,6 +1032,7 @@ stmt :
 			| AlterObjectSchemaStmt
 			| AlterOwnerStmt
 			| AlterQueueStmt
+			| AlterResourceGroupStmt
 			| AlterRoleSetStmt
 			| AlterRoleStmt
 			| AlterTSConfigurationStmt
@@ -1292,6 +1297,35 @@ DropResourceGroupStmt:
 					n->name = $4;
 					$$ = (Node *)n;
 				 }
+		;
+
+/*****************************************************************************
+ *
+ * Alter a GPDB Resource Group
+ *
+ *****************************************************************************/
+AlterResourceGroupStmt:
+			ALTER RESOURCE GROUP_P name SET OptResourceGroupList
+				 {
+					AlterResourceGroupStmt *n = makeNode(AlterResourceGroupStmt);
+					n->name = $4;
+					n->options = $6;
+					$$ = (Node *)n;
+				 }
+		;
+
+/*
+ * Option for ALTER RESOURCE GROUP
+ */
+OptResourceGroupList: OptResourceGroupElem			{ $$ = list_make1($1); }
+		;
+
+OptResourceGroupElem:
+			CONCURRENCY IntegerOnly
+				{
+					/* was "concurrency" */
+					$$ = makeDefElem("concurrency", (Node *)$2);
+				}
 		;
 
 /*****************************************************************************
@@ -1958,7 +1992,7 @@ zone_value:
 									(errcode(ERRCODE_SYNTAX_ERROR),
 									 errmsg("time zone interval must be HOUR or HOUR TO MINUTE"),
 									 scanner_errposition(@3)));
-						n->typname->typmods = list_make1(makeIntConst($3, @3));
+						n->typeName->typmods = list_make1(makeIntConst($3, @3));
 					}
 					$$ = (Node *)n;
 				}
@@ -1971,7 +2005,7 @@ zone_value:
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("time zone interval must be HOUR or HOUR TO MINUTE"),
 									 scanner_errposition(@6)));
-					n->typname->typmods = list_make2(makeIntConst($6, @6),
+					n->typeName->typmods = list_make2(makeIntConst($6, @6),
 													 makeIntConst($3, @3));
 					$$ = (Node *)n;
 				}
@@ -3530,7 +3564,7 @@ columnDef:	ColId Typename ColQualList opt_storage_encoding
 				{
 					ColumnDef *n = makeNode(ColumnDef);
 					n->colname = $1;
-					n->typname = $2;
+					n->typeName = $2;
 					n->constraints = $3;
 					n->is_local = true;
 					n->encoding = $4;
@@ -4620,7 +4654,7 @@ CreateAsElement:
 				{
 					ColumnDef *n = makeNode(ColumnDef);
 					n->colname = $1;
-					n->typname = NULL;
+					n->typeName = NULL;
 					n->inhcount = 0;
 					n->is_local = true;
 					n->is_not_null = false;
@@ -4896,7 +4930,7 @@ ExtcolumnDef:	ColId Typename
 		{
 			ColumnDef *n = makeNode(ColumnDef);
 			n->colname = $1;
-			n->typname = $2;
+			n->typeName = $2;
 			n->is_local = true;
 			n->is_not_null = false;
 			n->constraints = NIL;
@@ -7564,7 +7598,7 @@ AlterTypeStmt: ALTER TYPE_P SimpleTypename SET DEFAULT ENCODING definition
 				{
 					AlterTypeStmt *n = makeNode(AlterTypeStmt);
 
-					n->typname = $3;
+					n->typeName = $3;
 					n->encoding = $7;
 					$$ = (Node *)n;
 				}
@@ -8516,7 +8550,7 @@ CreateDomainStmt:
 				{
 					CreateDomainStmt *n = makeNode(CreateDomainStmt);
 					n->domainname = $3;
-					n->typname = $5;
+					n->typeName = $5;
 					n->constraints = $6;
 					$$ = (Node *)n;
 				}
@@ -8528,7 +8562,7 @@ AlterDomainStmt:
 				{
 					AlterDomainStmt *n = makeNode(AlterDomainStmt);
 					n->subtype = 'T';
-					n->typname = $3;
+					n->typeName = $3;
 					n->def = $4;
 					$$ = (Node *)n;
 				}
@@ -8537,7 +8571,7 @@ AlterDomainStmt:
 				{
 					AlterDomainStmt *n = makeNode(AlterDomainStmt);
 					n->subtype = 'N';
-					n->typname = $3;
+					n->typeName = $3;
 					$$ = (Node *)n;
 				}
 			/* ALTER DOMAIN <domain> SET NOT NULL */
@@ -8545,7 +8579,7 @@ AlterDomainStmt:
 				{
 					AlterDomainStmt *n = makeNode(AlterDomainStmt);
 					n->subtype = 'O';
-					n->typname = $3;
+					n->typeName = $3;
 					$$ = (Node *)n;
 				}
 			/* ALTER DOMAIN <domain> ADD CONSTRAINT ... */
@@ -8553,7 +8587,7 @@ AlterDomainStmt:
 				{
 					AlterDomainStmt *n = makeNode(AlterDomainStmt);
 					n->subtype = 'C';
-					n->typname = $3;
+					n->typeName = $3;
 					n->def = $5;
 					$$ = (Node *)n;
 				}
@@ -8562,7 +8596,7 @@ AlterDomainStmt:
 				{
 					AlterDomainStmt *n = makeNode(AlterDomainStmt);
 					n->subtype = 'X';
-					n->typname = $3;
+					n->typeName = $3;
 					n->name = $6;
 					n->behavior = $7;
 					$$ = (Node *)n;
@@ -9330,7 +9364,7 @@ select_no_parens:
 										NULL);
 					$$ = $1;
 				}
-			| with_clause select_clause
+			| with_clause simple_select
 				{
 					insertSelectOptions((SelectStmt *) $2, NULL, NIL,
 										NULL, NULL,
@@ -9380,10 +9414,10 @@ select_clause:
  *		(SELECT foo UNION SELECT bar) ORDER BY baz
  * not
  *		SELECT foo UNION (SELECT bar ORDER BY baz)
- * Likewise FOR UPDATE and LIMIT.  Therefore, those clauses are described
- * as part of the select_no_parens production, not simple_select.
- * This does not limit functionality, because you can reintroduce sort and
- * limit clauses inside parentheses.
+ * Likewise for WITH, FOR UPDATE and LIMIT.  Therefore, those clauses are
+ * described as part of the select_no_parens production, not simple_select.
+ * This does not limit functionality, because you can reintroduce these
+ * clauses inside parentheses.
  *
  * NOTE: only the leftmost component SelectStmt should have INTO.
  * However, this is not checked by the grammar; parse analysis must check it.
@@ -10281,7 +10315,7 @@ TableFuncElement:	ColId Typename
 				{
 					ColumnDef *n = makeNode(ColumnDef);
 					n->colname = $1;
-					n->typname = $2;
+					n->typeName = $2;
 					n->constraints = NIL;
 					n->is_local = true;
 					$$ = (Node *)n;
@@ -11557,7 +11591,7 @@ func_expr:	simple_func FILTER '(' WHERE a_expr ')'
 
 					s->val.type = T_String;
 					s->val.val.str = "now";
-					s->typname = SystemTypeName("text");
+					s->typeName = SystemTypeName("text");
 
 					d = SystemTypeName("date");
 
@@ -11574,7 +11608,7 @@ func_expr:	simple_func FILTER '(' WHERE a_expr ')'
 
 					s->val.type = T_String;
 					s->val.val.str = "now";
-					s->typname = SystemTypeName("text");
+					s->typeName = SystemTypeName("text");
 
 					d = SystemTypeName("timetz");
 
@@ -11591,7 +11625,7 @@ func_expr:	simple_func FILTER '(' WHERE a_expr ')'
 
 					s->val.type = T_String;
 					s->val.val.str = "now";
-					s->typname = SystemTypeName("text");
+					s->typeName = SystemTypeName("text");
 					d = SystemTypeName("timetz");
 					d->typmods = list_make1(makeIntConst($3, @3));
 
@@ -11625,7 +11659,7 @@ func_expr:	simple_func FILTER '(' WHERE a_expr ')'
 
 					s->val.type = T_String;
 					s->val.val.str = "now";
-					s->typname = SystemTypeName("text");
+					s->typeName = SystemTypeName("text");
 
 					d = SystemTypeName("timestamptz");
 					d->typmods = list_make1(makeIntConst($3, @3));
@@ -11643,7 +11677,7 @@ func_expr:	simple_func FILTER '(' WHERE a_expr ')'
 
 					s->val.type = T_String;
 					s->val.val.str = "now";
-					s->typname = SystemTypeName("text");
+					s->typeName = SystemTypeName("text");
 
 					d = SystemTypeName("time");
 
@@ -11660,7 +11694,7 @@ func_expr:	simple_func FILTER '(' WHERE a_expr ')'
 
 					s->val.type = T_String;
 					s->val.val.str = "now";
-					s->typname = SystemTypeName("text");
+					s->typeName = SystemTypeName("text");
 					d = SystemTypeName("time");
 					d->typmods = list_make1(makeIntConst($3, @3));
 
@@ -11677,7 +11711,7 @@ func_expr:	simple_func FILTER '(' WHERE a_expr ')'
 
 					s->val.type = T_String;
 					s->val.val.str = "now";
-					s->typname = SystemTypeName("text");
+					s->typeName = SystemTypeName("text");
 
 					d = SystemTypeName("timestamp");
 
@@ -11694,7 +11728,7 @@ func_expr:	simple_func FILTER '(' WHERE a_expr ')'
 
 					s->val.type = T_String;
 					s->val.val.str = "now";
-					s->typname = SystemTypeName("text");
+					s->typeName = SystemTypeName("text");
 
 					d = SystemTypeName("timestamp");
 					d->typmods = list_make1(makeIntConst($3, @3));
@@ -12810,8 +12844,8 @@ AexprConst: Iconst
 				{
 					/* generic type 'literal' syntax */
 					A_Const *n = makeNode(A_Const);
-					n->typname = makeTypeNameFromNameList($1);
-					n->typname->location = @1;
+					n->typeName = makeTypeNameFromNameList($1);
+					n->typeName->location = @1;
 					n->val.type = T_String;
 					n->val.val.str = $2;
 					n->location = @1;                   /*CDB*/
@@ -12821,9 +12855,9 @@ AexprConst: Iconst
 				{
 					/* generic syntax with a type modifier */
 					A_Const *n = makeNode(A_Const);
-					n->typname = makeTypeNameFromNameList($1);
-					n->typname->typmods = $3;
-					n->typname->location = @1;
+					n->typeName = makeTypeNameFromNameList($1);
+					n->typeName->typmods = $3;
+					n->typeName->location = @1;
 					n->val.type = T_String;
 					n->val.val.str = $5;
 					n->location = @1;                   /*CDB*/
@@ -12832,7 +12866,7 @@ AexprConst: Iconst
 			| ConstTypename Sconst
 				{
 					A_Const *n = makeNode(A_Const);
-					n->typname = $1;
+					n->typeName = $1;
 					n->val.type = T_String;
 					n->val.val.str = $2;
 					n->location = @2;                   /*CDB*/
@@ -12841,23 +12875,23 @@ AexprConst: Iconst
 			| ConstInterval Sconst opt_interval
 				{
 					A_Const *n = makeNode(A_Const);
-					n->typname = $1;
+					n->typeName = $1;
 					n->val.type = T_String;
 					n->val.val.str = $2;
 					n->location = @2;                   /*CDB*/
 					/* precision is not specified, but fields may be... */
 					if ($3 != INTERVAL_FULL_RANGE)
-						n->typname->typmods = list_make1(makeIntConst($3, @3));
+						n->typeName->typmods = list_make1(makeIntConst($3, @3));
 					$$ = (Node *)n;
 				}
 			| ConstInterval '(' Iconst ')' Sconst opt_interval
 				{
 					A_Const *n = makeNode(A_Const);
-					n->typname = $1;
+					n->typeName = $1;
 					n->val.type = T_String;
 					n->val.val.str = $5;
 					n->location = @1;                   /*CDB*/
-					n->typname->typmods = list_make2(makeIntConst($6, @6),
+					n->typeName->typmods = list_make2(makeIntConst($6, @6),
 													 makeIntConst($3, @3));
 					$$ = (Node *)n;
 				}
@@ -12972,6 +13006,7 @@ unreserved_keyword:
 			| COMMENT
 			| COMMIT
 			| COMMITTED
+			| CONCURRENCY
 			| CONCURRENTLY
 			| CONFIGURATION
 			| CONNECTION
@@ -13184,6 +13219,7 @@ unreserved_keyword:
 			| STDOUT
 			| STORAGE
 			| STRICT_P
+			| STRIP_P
 			| SUBPARTITION
 			| SUBPARTITIONS
 			| SUPERUSER_P
@@ -13217,6 +13253,7 @@ unreserved_keyword:
 			| VIEW
 			| VOLATILE
 			| WEB /* gp */
+			| WHITESPACE_P
 			| WITHIN
 			| WITHOUT
 			| WORK
@@ -13281,6 +13318,7 @@ PartitionIdentKeyword: ABORT_P
 			| COMMENT
 			| COMMIT
 			| COMMITTED
+			| CONCURRENCY
 			| CONCURRENTLY
 			| CONNECTION
 			| CONSTRAINTS
@@ -13457,7 +13495,6 @@ PartitionIdentKeyword: ABORT_P
 			| STDOUT
 			| STORAGE
 			| STRICT_P
-			| STRIP_P
 			| SUBPARTITION
 			| SUBPARTITIONS
 			| SUPERUSER_P
@@ -13486,7 +13523,6 @@ PartitionIdentKeyword: ABORT_P
 			| VIEW
 			| VALUE_P
 			| VOLATILE
-			| WHITESPACE_P
 			| WORK
 			| WRITE
 			| ZONE
@@ -13813,7 +13849,7 @@ makeTypeCast(Node *arg, TypeName *typename, int location)
 {
 	TypeCast *n = makeNode(TypeCast);
 	n->arg = arg;
-	n->typname = typename;
+	n->typeName = typename;
 	n->location = location;
 	return (Node *) n;
 }
@@ -13825,7 +13861,7 @@ makeStringConst(char *str, TypeName *typname, int location)
 
 	n->val.type = T_String;
 	n->val.val.str = str;
-	n->typname = typname;
+	n->typeName = typname;
 	n->location = location;
 
 	return (Node *)n;
@@ -13838,7 +13874,7 @@ makeIntConst(int val, int location)
 	n->val.type = T_Integer;
 	n->val.val.ival = val;
 	n->location = location;
-	n->typname = SystemTypeName("int4");
+	n->typeName = SystemTypeName("int4");
 
 	return (Node *)n;
 }
@@ -13851,7 +13887,7 @@ makeFloatConst(char *str, int location)
 	n->val.type = T_Float;
 	n->val.val.str = str;
 	n->location = location;
-	n->typname = SystemTypeName("float8");
+	n->typeName = SystemTypeName("float8");
 
 	return (Node *)n;
 }
@@ -13900,7 +13936,7 @@ makeBoolAConst(bool state, int location)
 	A_Const *n = makeNode(A_Const);
 	n->val.type = T_String;
 	n->val.val.str = (state ? "t" : "f");
-	n->typname = SystemTypeName("bool");
+	n->typeName = SystemTypeName("bool");
 	n->location = location;
 	return n;
 }
@@ -14063,11 +14099,10 @@ insertSelectOptions(SelectStmt *stmt,
 		if (stmt->withClause)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("syntax error at or near \"WITH\""),
-					 scanner_errposition(exprLocation((Node *)withClause))));
-		stmt->withClause = (WithClause *)withClause;
+					 errmsg("multiple WITH clauses not allowed"),
+					 scanner_errposition(exprLocation((Node *) withClause))));
+		stmt->withClause = withClause;
 	}
-
 }
 
 static Node *

@@ -431,6 +431,7 @@ check_xact_readonly(Node *parsetree)
 		case T_AlterDomainStmt:
 		case T_AlterFunctionStmt:
 		case T_AlterQueueStmt:
+		case T_AlterResourceGroupStmt:
 		case T_AlterRoleStmt:
 		case T_AlterRoleSetStmt:
 		case T_AlterObjectSchemaStmt:
@@ -1225,23 +1226,23 @@ ProcessUtility(Node *parsetree,
 						 * Recursively alter column default for table and, if
 						 * requested, for descendants
 						 */
-						AlterDomainDefault(stmt->typname,
+						AlterDomainDefault(stmt->typeName,
 										   stmt->def);
 						break;
 					case 'N':	/* ALTER DOMAIN DROP NOT NULL */
-						AlterDomainNotNull(stmt->typname,
+						AlterDomainNotNull(stmt->typeName,
 										   false);
 						break;
 					case 'O':	/* ALTER DOMAIN SET NOT NULL */
-						AlterDomainNotNull(stmt->typname,
+						AlterDomainNotNull(stmt->typeName,
 										   true);
 						break;
 					case 'C':	/* ADD CONSTRAINT */
-						AlterDomainAddConstraint(stmt->typname,
+						AlterDomainAddConstraint(stmt->typeName,
 												 stmt->def);
 						break;
 					case 'X':	/* DROP CONSTRAINT */
-						AlterDomainDropConstraint(stmt->typname,
+						AlterDomainDropConstraint(stmt->typeName,
 												  stmt->name,
 												  stmt->behavior);
 						break;
@@ -1744,6 +1745,11 @@ ProcessUtility(Node *parsetree,
 		case T_CreateResourceGroupStmt:
 			CreateResourceGroup((CreateResourceGroupStmt *) parsetree);
 			break;
+
+		case T_AlterResourceGroupStmt:
+			AlterResourceGroup((AlterResourceGroupStmt *) parsetree);
+			break;
+
 		case T_DropResourceGroupStmt:
 			DropResourceGroup((DropResourceGroupStmt *) parsetree);
 			break;
@@ -2636,6 +2642,10 @@ CreateCommandTag(Node *parsetree)
 
 		case T_DropResourceGroupStmt:
 			tag = "DROP RESOURCE GROUP";
+			break;
+
+		case T_AlterResourceGroupStmt:
+			tag = "ALTER RESOURCE GROUP";
 			break;
 
 		case T_CreateRoleStmt:

@@ -6,7 +6,7 @@
     <body>
         <p>Greenplum Database stores and processes large amounts of data by distributing the data
             and processing workload across several servers or <i>hosts</i>. Greenplum Database is an
-                <i>array</i> of individual databases based upon PostgreSQL 8.2 working together to
+                <i>array</i> of individual databases based upon PostgreSQL 8.3 working together to
             present a single database image. The <i>master</i> is the entry point to the Greenplum
             Database system. It is the database instance to which clients connect and submit SQL
             statements. The master coordinates its work with the other database instances in the
@@ -48,7 +48,8 @@
             <p>Greenplum Database end-users interact with Greenplum Database (through the master) as
                 they would with a typical PostgreSQL database. They connect to the database using
                 client programs such as <codeph>psql</codeph> or application programming interfaces
-                (APIs) such as JDBC or ODBC.</p>
+                (APIs) such as JDBC, ODBC or <xref href="https://www.postgresql.org/docs/current/static/libpq.html" format="html"
+                scope="external">libpq</xref> (the PostgreSQL C API).</p>
             <p>The master is where the <i>global system catalog</i> resides. The global system
                 catalog is the set of system tables that contain metadata about the Greenplum
                 Database system itself. The master does not contain any user data; data resides only
@@ -63,8 +64,8 @@
             <p>In Greenplum Database, the <i>segments</i> are where data is stored and the majority
                 of query processing takes place. When a user connects to the database and issues a
                 query, processes are created on each segment to handle the work of that query. For
-                more information about query processes, see the Greenplum Database
-                Administrator Guide. </p>
+                more information about query processes, see the Greenplum Database Administrator
+                Guide. </p>
             <p>User-defined tables and their indexes are distributed across the available segments
                 in a Greenplum Database system; each segment contains a distinct portion of data.
                 The database server processes that serve segment data run under the corresponding
@@ -241,15 +242,22 @@
                     <p>System State Reporting </p>
                 </li>
             </ul>
-            <p>Greenplum provides an optional system monitoring and management tool that
-                administrators can install and enable with Greenplum Database. Greenplum Command
-                Center uses data collection agents on each segment host to collect and store
-                Greenplum system metrics in a dedicated database. Segment data collection agents
-                send their data to the Greenplum master at regular intervals (typically every 15
-                seconds). Users can query the Command Center database to see query and system
-                metrics. Greenplum Command Center has a graphical web-based user interface for
-                viewing system metrics, which administrators can install separately from Greenplum
-                Database. For more information, see the Greenplum Command Center documentation.</p>
+            <p>Pivotal provides an optional system monitoring and management tool, Greenplum Command
+                Center, which administrators can install and enable with Greenplum Database.
+                Greenplum Command Center depends upon a dedicated database named
+                    <codeph>gpperfmon</codeph>, which is used to collect and store system metrics.
+                Data collection agents on the segments send their data to the Greenplum master at
+                regular intervals (typically every 15 seconds).</p>
+            <p> Greenplum Database includes a <codeph>gpperfmon_install</codeph> management utility,
+                which creates the <codeph>gpperfmon</codeph> database and enables the data
+                collection agents. Users can query the <codeph>gpperfmon</codeph> database to see
+                query and system metrics. </p>
+            <p>Administrators can install Greenplum Command Center, available separately from
+                Greenplum Database, to provide a graphical web-based user interface for viewing the
+                system metrics and to perform additional system management tasks. For more
+                information about Greenplum Command Center, see the <xref
+                    href="https://gpcc.docs.pivotal.io" format="html" scope="external">Greenplum
+                    Command Center documentation</xref>.</p>
             <fig id="kf145043">
                 <title>Greenplum Command Center Architecture</title>
                 <image href="../graphics/cc_arch_gpdb.png" placement="break" width="299px"

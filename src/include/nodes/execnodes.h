@@ -8,7 +8,7 @@
  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
- * $PostgreSQL: pgsql/src/include/nodes/execnodes.h,v 1.183.2.1 2010/07/28 04:51:14 tgl Exp $
+ * $PostgreSQL: pgsql/src/include/nodes/execnodes.h,v 1.189 2008/10/04 21:56:55 tgl Exp $
  *
  *-------------------------------------------------------------------------
  */
@@ -646,6 +646,9 @@ typedef struct EState
 	 * Information relevant to dynamic table scans.
 	 */
 	DynamicTableScanInfo *dynamicTableScanInfo;
+
+	/* Should the executor skip past the alien plan nodes */
+	bool eliminateAliens;
 } EState;
 
 struct PlanState;
@@ -1435,44 +1438,21 @@ typedef struct Gpmon_NameVal_Text
 	char	   *value;
 } Gpmon_NameVal_Text;
 
-/* Gpperfmon helper functions defined in execGpmon.h */
+/* Gpperfmon helper functions defined in execGpmon.c */
 extern char *GetScanRelNameGpmon(Oid relid, char schema_table_name[SCAN_REL_NAME_BUF_SIZE]);
 extern void CheckSendPlanStateGpmonPkt(PlanState *ps);
 extern void EndPlanStateGpmonPkt(PlanState *ps);
-extern void InitPlanNodeGpmonPkt(Plan* plan, gpmon_packet_t *gpmon_pkt, EState *estate,
-								 PerfmonNodeType type, int64 rowsout_est,
-								 char* relname);
-
+extern void InitPlanNodeGpmonPkt(Plan* plan, gpmon_packet_t *gpmon_pkt, EState *estate);
 
 extern uint64 PlanStateOperatorMemKB(const PlanState *ps);
 
-static inline void Gpmon_M_Incr(gpmon_packet_t *pkt, int nth)
+static inline void Gpmon_Incr_Rows_In(gpmon_packet_t *pkt)
 {
-	++pkt->u.qexec.measures[nth];
+    ++pkt->u.qexec.rowsin;
 }
-static inline void Gpmon_M_Incr_Rows_Out(gpmon_packet_t *pkt)
+static inline void Gpmon_Incr_Rows_Out(gpmon_packet_t *pkt)
 {
     ++pkt->u.qexec.rowsout;
-}
-static inline void Gpmon_M_Add_Rows_Out(gpmon_packet_t *pkt, int val)
-{
-    pkt->u.qexec.rowsout += val;
-}
-static inline void Gpmon_M_Add(gpmon_packet_t *pkt, int nth, int val)
-{
-	pkt->u.qexec.measures[nth] += val;
-}
-static inline void Gpmon_M_Set(gpmon_packet_t *pkt, int nth, int64 val)
-{
-	pkt->u.qexec.measures[nth] = val;
-}
-static inline int64 Gpmon_M_Get(gpmon_packet_t *pkt, int nth)
-{
-	return pkt->u.qexec.measures[nth];
-}
-static inline void Gpmon_M_Reset(gpmon_packet_t *pkt, int nth)
-{
-	pkt->u.qexec.measures[nth] = 0;
 }
 
 /* ----------------
@@ -1550,6 +1530,26 @@ typedef struct SequenceState
 	 */
 	bool		initState;
 } SequenceState;
+
+/* ----------------
+ *	 RecursiveUnionState information
+ *
+ *		RecursiveUnionState is used for performing a recursive union.
+ *
+ *		recursing			T when we're done scanning the non-recursive term
+ *		intermediate_empty	T if intermediate_table is currently empty
+ *		working_table		working table (to be scanned by recursive term)
+ *		intermediate_table	current recursive output (next generation of WT)
+ * ----------------
+ */
+typedef struct RecursiveUnionState
+{
+	PlanState	ps;				/* its first field is NodeTag */
+	bool		recursing;
+	bool		intermediate_empty;
+	Tuplestorestate *working_table;
+	Tuplestorestate *intermediate_table;
+} RecursiveUnionState;
 
 /* ----------------
  *	 BitmapAndState information
@@ -1962,6 +1962,44 @@ typedef struct ValuesScanState
 	int			marked_idx;
 	bool		cdb_want_ctid;	/* true => ctid is referenced in targetlist */
 } ValuesScanState;
+
+/* ----------------
+ *	 CteScanState information
+ *
+ *		CteScan nodes are used to scan a CommonTableExpr query.
+ *
+ * Multiple CteScan nodes can read out from the same CTE query.  We use
+ * a tuplestore to hold rows that have been read from the CTE query but
+ * not yet consumed by all readers.
+ * ----------------
+ */
+typedef struct CteScanState
+{
+	ScanState	ss;				/* its first field is NodeTag */
+	int			eflags;			/* capability flags to pass to tuplestore */
+	int			readptr;		/* index of my tuplestore read pointer */
+	PlanState  *cteplanstate;	/* PlanState for the CTE query itself */
+	/* Link to the "leader" CteScanState (possibly this same node) */
+	struct CteScanState *leader;
+	/* The remaining fields are only valid in the "leader" CteScanState */
+	Tuplestorestate *cte_table;	/* rows already read from the CTE query */
+	bool		eof_cte;		/* reached end of CTE query? */
+} CteScanState;
+
+/* ----------------
+ *	 WorkTableScanState information
+ *
+ *		WorkTableScan nodes are used to scan the work table created by
+ *		a RecursiveUnion node.  We locate the RecursiveUnion node
+ *		during executor startup.
+ * ----------------
+ */
+typedef struct WorkTableScanState
+{
+	ScanState	ss;				/* its first field is NodeTag */
+	RecursiveUnionState *rustate;
+} WorkTableScanState;
+
 
 /* ----------------
  *         ExternalScanState information
@@ -2468,6 +2506,9 @@ typedef struct WindowState
 
 	/* Indicate if any function need a peer count. */
 	bool		need_peercount;
+
+	/* Indicate if child is done returning tuples */
+	bool	    is_input_done;
 } WindowState;
 
 /* ----------------

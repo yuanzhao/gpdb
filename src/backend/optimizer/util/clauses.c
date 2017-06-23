@@ -9,7 +9,7 @@
  *
  *
  * IDENTIFICATION
- *	  $PostgreSQL: pgsql/src/backend/optimizer/util/clauses.c,v 1.254.2.3 2008/08/26 02:16:39 tgl Exp $
+ *	  $PostgreSQL: pgsql/src/backend/optimizer/util/clauses.c,v 1.268 2008/10/04 21:56:53 tgl Exp $
  *
  * HISTORY
  *	  AUTHOR			DATE			MAJOR EVENT
@@ -827,36 +827,6 @@ contain_mutable_functions_walker(Node *node, void *context)
 		set_opfuncid((OpExpr *) expr);	/* rely on struct equivalence */
 		if (func_volatile(expr->opfuncid) != PROVOLATILE_IMMUTABLE)
 			return true;
-		/* else fall through to check args */
-	}
-	else if (IsA(node, CoerceViaIO))
-	{
-		CoerceViaIO *expr = (CoerceViaIO *) node;
-		Oid             iofunc;
-		Oid             typioparam;
-		bool    typisvarlena;
-
-		/* check the result type's input function */
-		getTypeInputInfo(expr->resulttype,
-					&iofunc, &typioparam);
-		if (func_volatile(iofunc) != PROVOLATILE_IMMUTABLE)
-			return true;
-		/* check the input type's output function */
-		getTypeOutputInfo(exprType((Node *) expr->arg),
-					&iofunc, &typisvarlena);
-		if (func_volatile(iofunc) != PROVOLATILE_IMMUTABLE)
-			return true;
-		/* else fall through to check args */
-	}
-	else if (IsA(node, ArrayCoerceExpr))
-	{
-		ArrayCoerceExpr *expr = (ArrayCoerceExpr *) node;
-
-		if (OidIsValid(expr->elemfuncid) &&
-			func_volatile(expr->elemfuncid) != PROVOLATILE_IMMUTABLE)
-		{
-			return true;
-		}
 		/* else fall through to check args */
 	}
 	else if (IsA(node, RowCompareExpr))
@@ -3576,6 +3546,7 @@ inline_function(Oid funcid, Oid result_type, List *args,
 		querytree->intoClause ||
 		querytree->hasAggs ||
 		querytree->hasSubLinks ||
+		querytree->cteList ||
 		querytree->rtable ||
 		querytree->jointree->fromlist ||
 		querytree->jointree->quals ||

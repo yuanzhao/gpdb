@@ -314,6 +314,12 @@ PortalCleanup(Portal portal)
 			PG_TRY();
 			{
 				CurrentResourceOwner = portal->resowner;
+
+				/*
+				 * If we still have an estate -- then we need to cancel unfinished work.
+				 */
+				queryDesc->estate->cancelUnfinished = true;
+
 				/* we do not need AfterTriggerEndQuery() here */
 				ExecutorEnd(queryDesc);
 			}
@@ -514,6 +520,10 @@ PersistHoldablePortal(Portal portal)
 	{
 		/* Uncaught error while executing portal: mark it dead */
 		portal->status = PORTAL_FAILED;
+
+		/* GPDB: cleanup dispatch and teardown interconnect */
+		if (portal->queryDesc)
+			mppExecutorCleanup(portal->queryDesc);
 
 		/* Restore global vars and propagate error */
 		ActivePortal = saveActivePortal;

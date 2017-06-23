@@ -1253,7 +1253,7 @@ puttuple_common(Tuplesortstate_mk *state, MKEntry *e)
 	state->totalNumTuples++;
 
 	if (state->gpmon_pkt)
-		Gpmon_M_Incr(state->gpmon_pkt, GPMON_QEXEC_M_ROWSIN);
+		Gpmon_Incr_Rows_In(state->gpmon_pkt);
 
 	bool		growSucceed = true;
 
@@ -1661,7 +1661,7 @@ tuplesort_gettupleslot_pos_mk(Tuplesortstate_mk *state, TuplesortPos_mk *pos,
 #endif
 
 		if (state->gpmon_pkt)
-			Gpmon_M_Incr_Rows_Out(state->gpmon_pkt);
+			Gpmon_Incr_Rows_Out(state->gpmon_pkt);
 
 		return true;
 	}
@@ -1967,14 +1967,6 @@ mergeruns(Tuplesortstate_mk *state)
 	{
 		lt = LogicalTapeSetGetTape(state->tapeset, tapenum);
 		LogicalTapeRewind(state->tapeset, lt, false);
-	}
-
-	/* Clear gpmon for respilling data */
-	if (state->gpmon_pkt)
-	{
-		Gpmon_M_Incr(state->gpmon_pkt, GPMON_SORT_SPILLPASS);
-		Gpmon_M_Reset(state->gpmon_pkt, GPMON_SORT_CURRSPILLPASS_TUPLE);
-		Gpmon_M_Reset(state->gpmon_pkt, GPMON_SORT_CURRSPILLPASS_BYTE);
 	}
 
 	for (;;)
@@ -2769,7 +2761,7 @@ copytup_heap(Tuplesortstate_mk *state, MKEntry *e, void *tup)
 									   NULL, NULL, false
 		);
 
-	state->totalTupleBytes += memtuple_get_size((MemTuple) e->ptr, NULL);
+	state->totalTupleBytes += memtuple_get_size((MemTuple) e->ptr);
 
 	Assert(state->mt_bind);
 }
@@ -2781,7 +2773,7 @@ copytup_heap(Tuplesortstate_mk *state, MKEntry *e, void *tup)
 static long
 writetup_heap(Tuplesortstate_mk *state, LogicalTape *lt, MKEntry *e)
 {
-	uint32		tuplen = memtuple_get_size(e->ptr, NULL);
+	uint32		tuplen = memtuple_get_size(e->ptr);
 	long		ret = tuplen;
 
 	LogicalTapeWrite(state->tapeset, lt, e->ptr, tuplen);
@@ -2790,14 +2782,6 @@ writetup_heap(Tuplesortstate_mk *state, LogicalTape *lt, MKEntry *e)
 	{
 		LogicalTapeWrite(state->tapeset, lt, (void *) &tuplen, sizeof(tuplen));
 		ret += sizeof(tuplen);
-	}
-
-	if (state->gpmon_pkt)
-	{
-		Gpmon_M_Incr(state->gpmon_pkt, GPMON_SORT_SPILLTUPLE);
-		Gpmon_M_Add(state->gpmon_pkt, GPMON_SORT_SPILLBYTE, tuplen);
-		Gpmon_M_Incr(state->gpmon_pkt, GPMON_SORT_CURRSPILLPASS_TUPLE);
-		Gpmon_M_Add(state->gpmon_pkt, GPMON_SORT_CURRSPILLPASS_BYTE, tuplen);
 	}
 
 	pfree(e->ptr);
@@ -2824,7 +2808,7 @@ readtup_heap(Tuplesortstate_mk *state, TuplesortPos_mk *pos, MKEntry *e, Logical
 	MemSet(e, 0, sizeof(MKEntry));
 	e->ptr = palloc(memtuple_size_from_uint32(len));
 
-	memtuple_set_mtlen((MemTuple) e->ptr, NULL, len);
+	memtuple_set_mtlen((MemTuple) e->ptr, len);
 
 	Assert(lt);
 	readSize = LogicalTapeRead(state->tapeset, lt,
