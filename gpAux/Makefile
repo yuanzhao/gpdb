@@ -159,6 +159,7 @@ endif
 
 APU_CONFIG=--with-apu-config=$(BLD_THIRDPARTY_BIN_DIR)/apu-1-config
 
+aix7_ppc_64_CONFIGFLAGS=--disable-gpcloud --without-libcurl --disable-orca $(APR_CONFIG)
 win32_CONFIGFLAGS=--with-gssapi --without-libcurl --disable-orca --disable-gpcloud $(APR_CONFIG)
 sol10_x86_64_CONFIGFLAGS=--enable-snmp --with-libxml $(APR_CONFIG)
 rhel5_x86_32_CONFIGFLAGS=--host=i686-pc-linux-gnu --enable-snmp --enable-ddboost --with-gssapi --enable-netbackup --with-libxml $(APR_CONFIG)
@@ -180,7 +181,7 @@ CONFIGFLAGS+= $(CONFIGURE_FLAGS)
 endif
 
 # PL/Python does not compile on Tiger, skipping it on AIX
-ifneq "$(findstring $(BLD_ARCH),aix5_ppc_64 aix5_ppc_32)" ""
+ifneq "$(findstring $(BLD_ARCH),aix7_ppc_64 aix5_ppc_64 aix5_ppc_32)" ""
 PG_LANG=false
 endif
 
@@ -198,6 +199,7 @@ endif
 # Configure in the extra path AIX requires for pthread support
 aix5_ppc_64_PTHREADS_LIB_DIR=/usr/lib/threads
 aix5_ppc_32_PTHREADS_LIB_DIR=/usr/lib/threads
+aix7_ppc_64_PTHREADS_LIB_DIR=/usr/lib/threads
 BLD_PTHREADS_LIB_DIR=$($(BLD_ARCH)_PTHREADS_LIB_DIR)
 
 ifdef ADDON_DIR
@@ -211,22 +213,23 @@ CONFIGFLAGS+= --with-includes="$(CONFIG_INCLUDES)" --with-libraries="$(CONFIG_LI
 
 # Configure in "authlibs"...
 # ...without an ext/ dir copy of curl-config on Tiger or AIX
-ifeq "$(findstring $(BLD_ARCH),aix5_ppc_64 aix5_ppc_32)" ""
+ifeq "$(findstring $(BLD_ARCH),aix7_ppc_64 aix5_ppc_64 aix5_ppc_32)" ""
 BLD_CURL_CONFIG=CURL_CONFIG=$(BLD_THIRDPARTY_BIN_DIR)/curl-config
 endif
 # ...and do not include the authlibs on Windows or AIX
-ifeq "$(findstring $(BLD_ARCH),aix5_ppc_64 win32 win64)" ""
+ifeq "$(findstring $(BLD_ARCH),aix7_ppc_64 aix5_ppc_64 win32 win64)" ""
 CONFIGFLAGS+= --with-openssl --with-pam --with-krb5 --with-ldap $(BLD_CURL_CONFIG) $(APR_CONFIG)
 endif
 
 # ...but do include some of the authlibs on AIX
-ifneq "$(findstring $(BLD_ARCH),aix5_ppc_32 aix5_ppc_64)" ""
+ifneq "$(findstring $(BLD_ARCH),aix7_ppc_64 ix5_ppc_32 aix5_ppc_64)" ""
 CONFIGFLAGS+= --with-openssl --with-pam --without-krb5 --with-ldap $(BLD_CURL_CONFIG)
 endif
 
 # Platform-specific config flags
 aix5_ppc_64_CONFIG_ADDITIONS=LDFLAGS="-Wl,-bbigtoc -L/usr/lib/threads"
 aix5_ppc_32_CONFIG_ADDITIONS=LDFLAGS="-L/usr/lib/threads"
+aix7_ppc_64_CONFIG_ADDITIONS=LDFLAGS="-Wl,-bbigtoc -L/usr/lib/threads"
 hpux_ia64_CONFIG_ADDITIONS=--without-readline --without-ldap
 
 win32_GPFDIST_LDFLAGS += -L/usr/i686-pc-mingw32/sys-root/mingw/lib -L$(GPPGDIR)/src/bin/gpfdist/ext/lib
@@ -255,9 +258,13 @@ RECONFIG :
 # avoid AIX's restricted shell
 aix5_ppc_64_CONFIG_SHELL=/usr/bin/bash
 aix5_ppc_32_CONFIG_SHELL=/usr/bin/bash
+aix7_ppc_64_CONFIG_SHELL=/usr/bin/bash
 BLD_CONFIG_SHELL=$($(BLD_ARCH)_CONFIG_SHELL)
 
 $(GPPGDIR)/GNUmakefile : $(GPPGDIR)/configure  env.sh
+	echo "BLD_CFLAGS:"
+	echo $(BLD_CFLAGS)
+	echo "*****************"
 	rm -rf $(INSTLOC)
 	mkdir -p $(GPPGDIR)
 	if [ "$(BLD_ARCH)" = "win32" ]; then \
@@ -317,6 +324,7 @@ hpux_ia64_GPDB_BUILDSET=partial
 rhel5_x86_32_GPDB_BUILDSET=partial
 aix5_ppc_64_GPDB_BUILDSET=partial
 aix5_ppc_32_GPDB_BUILDSET=partial
+aix7_ppc_64_GPDB_BUILDSET=partial
 sol10_x86_64_GPDB_BUILDSET=partial
 sol10_x86_32_GPDB_BUILDSET=partial
 sol10_sparc_32_GPDB_BUILDSET=partial
@@ -594,9 +602,11 @@ FILESET_LIB_GCC_LOC=$($(BLD_ARCH)_LOADERS_LIBS_GCC_LOC)
 
 aix5_ppc_32_LOADERS_LIBS_PERZL=libz.a
 aix5_ppc_64_LOADERS_LIBS_PERZL=libz.so libz.so.1 libz.so.1.2.4 libcrypto.so libcrypto.so.0.9.8 libssl.so libssl.so.0.9.8
+aix7_ppc_64_LOADERS_LIBS_PERZL=libcrypto.a libssl.a
 
 aix5_ppc_32_LOADERS_LIBS_PERZL_LOC=/opt/freeware/lib
 aix5_ppc_64_LOADERS_LIBS_PERZL_LOC=/opt/pware64/lib
+aix7_ppc_64_LOADERS_LIBS_PERZL_LOC=$(BLD_TOP)/ext/aix7_ppc_64/lib
 
 aix7_ppc_64_LOADERS_LIBS_PERZL=libcrypto.a libssl.a
 aix7_ppc_64_LOADERS_LIBS_PERZL_LOC=$(BLD_TOP)/ext/aix7_ppc_64/lib
@@ -994,7 +1004,7 @@ copylibs : thirdparty-dist copy-nbu-libs
 	fi
 	mkdir -p $(INSTLOC)/etc
 	mkdir -p $(INSTLOC)/include
-ifeq "$(findstring $(BLD_ARCH),aix5_ppc_32 aix5_ppc_64 win32 win64)" ""
+ifeq "$(findstring $(BLD_ARCH),aix5_ppc_32 aix5_ppc_64 aix5_ppc_64 win32 win64)" ""
 	# Copy curl header file
 	cp -rp $(BLD_THIRDPARTY_INCLUDE_DIR)/curl $(INSTLOC)/include/
 endif
@@ -1010,8 +1020,10 @@ else
 endif
 endif
 
+ifneq "$(BLD_ARCH)" "aix7_ppc_64"
 	# Copy glider stack trace capture tool
 	-cp -rp $(BLD_THIRDPARTY_BIN_DIR)/glider $(INSTLOC)/sbin/
+endif
 
 ifeq "$(BLD_ARCH)" "win32"
 	# Copy kfw dlls
