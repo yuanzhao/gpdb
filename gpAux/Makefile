@@ -607,9 +607,12 @@ aix7_ppc_64_LOADERS_LIBS_PERZL=libcrypto.a libssl.a
 aix5_ppc_32_LOADERS_LIBS_PERZL_LOC=/opt/freeware/lib
 aix5_ppc_64_LOADERS_LIBS_PERZL_LOC=/opt/pware64/lib
 aix7_ppc_64_LOADERS_LIBS_PERZL_LOC=$(BLD_TOP)/ext/aix7_ppc_64/lib
+<<<<<<< HEAD
 
 aix7_ppc_64_LOADERS_LIBS_PERZL=libcrypto.a libssl.a
 aix7_ppc_64_LOADERS_LIBS_PERZL_LOC=$(BLD_TOP)/ext/aix7_ppc_64/lib
+=======
+>>>>>>> f0f89a9465... sss
 
 LOADERS_FILESET_LIB_PERZL=$($(BLD_ARCH)_LOADERS_LIBS_PERZL)
 LOADERS_FILESET_LIB_PERZL_LOC=$($(BLD_ARCH)_LOADERS_LIBS_PERZL_LOC)
