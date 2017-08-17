@@ -151,7 +151,7 @@ DEFPORT=5432
 ORCA_CONFIG=--enable-orca
 ifneq "$(findstring $(BLD_ARCH),win32 win64)" ""
 APR_CONFIG=--with-apr-config=$(GPPGDIR)/src/bin/gpfdist/ext/bin/apr-1-config
-OPENSSL=openssl-0.9.8ze
+OPENSSL=openssl-1.0.2l
 BLD_THIRDPARTY_OPENSSL_INCLUDES=-I$(GPPGDIR)/src/bin/gpfdist/ext/$(OPENSSL)/include
 else
 APR_CONFIG=--with-apr-config=$(BLD_THIRDPARTY_BIN_DIR)/apr-1-config
@@ -565,6 +565,7 @@ LOADERS_FILESET_BINEXT = $(strip $(tmpLOADERS_FILESET_BINEXT))
 BLD_PYTHON_FILESET=.
 aix5_ppc_32_PYTHON_FILESET=bin/python* lib/python* include/python*
 aix5_ppc_64_PYTHON_FILESET=bin/python* lib/python* include/python*
+aix7_ppc_64_PYTHON_FILESET=bin/python* lib/python* lib64/python* include/python*
 ifneq "$($(BLD_ARCH)_PYTHON_FILESET)" ""
 BLD_PYTHON_FILESET=$($(BLD_ARCH)_PYTHON_FILESET)
 endif
@@ -596,6 +597,9 @@ aix5_ppc_64_LOADERS_LIBS_PERZL=libz.so libz.so.1 libz.so.1.2.4 libcrypto.so libc
 
 aix5_ppc_32_LOADERS_LIBS_PERZL_LOC=/opt/freeware/lib
 aix5_ppc_64_LOADERS_LIBS_PERZL_LOC=/opt/pware64/lib
+
+aix7_ppc_64_LOADERS_LIBS_PERZL=libcrypto.a libssl.a
+aix7_ppc_64_LOADERS_LIBS_PERZL_LOC=$(BLD_TOP)/ext/aix7_ppc_64/lib
 
 LOADERS_FILESET_LIB_PERZL=$($(BLD_ARCH)_LOADERS_LIBS_PERZL)
 LOADERS_FILESET_LIB_PERZL_LOC=$($(BLD_ARCH)_LOADERS_LIBS_PERZL_LOC)
