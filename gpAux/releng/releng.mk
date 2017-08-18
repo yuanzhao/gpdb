@@ -119,8 +119,9 @@ sync_tools: opt_write_test /opt/releng/apache-ant
 	-Divyrepo.host=$(IVYREPO_HOST) -Divyrepo.realm="$(IVYREPO_REALM)" \
 	-Divyrepo.user=$(IVYREPO_USER) -Divyrepo.passwd="$(IVYREPO_PASSWD)" resolve);
 	@echo "Resolve finished";
-
+ifeq "$(findstring aix,$(BLD_ARCH))" ""
 	LD_LIBRARY_PATH='' wget -O - https://github.com/greenplum-db/gporca/releases/download/v2.40.0/bin_orca_centos5_release.tar.gz | tar zxf - -C $(BLD_TOP)/ext/$(BLD_ARCH)
+endif
 
 clean_tools: opt_write_test
 	@cd releng/make/dependencies; \
