@@ -159,7 +159,7 @@ endif
 
 APU_CONFIG=--with-apu-config=$(BLD_THIRDPARTY_BIN_DIR)/apu-1-config
 
-aix7_ppc_64_CONFIGFLAGS=--disable-gpcloud --without-libcurl --disable-orca $(APR_CONFIG)
+aix7_ppc_64_CONFIGFLAGS=--disable-gpcloud --without-readline --without-libcurl --disable-orca $(APR_CONFIG)
 win32_CONFIGFLAGS=--with-gssapi --without-libcurl --disable-orca --disable-gpcloud $(APR_CONFIG)
 sol10_x86_64_CONFIGFLAGS=--enable-snmp --with-libxml $(APR_CONFIG)
 rhel5_x86_32_CONFIGFLAGS=--host=i686-pc-linux-gnu --enable-snmp --enable-ddboost --with-gssapi --enable-netbackup --with-libxml $(APR_CONFIG)
@@ -205,7 +205,6 @@ BLD_PTHREADS_LIB_DIR=$($(BLD_ARCH)_PTHREADS_LIB_DIR)
 ifdef ADDON_DIR
 ADDON_CONFIG_INCLUDES=$(BLD_TOP)/$(ADDON_DIR)/src/include
 endif
-
 # Configure in thirdparty libraries from the ext/ directory
 CONFIG_INCLUDES=$(BLD_THIRDPARTY_INCLUDE_DIR) $(BLD_THIRDPARTY_INCLUDE_DIR)/libxml2 $(ADDON_CONFIG_INCLUDES)
 CONFIG_LIBRARIES=$(strip $(BLD_THIRDPARTY_LIB_DIR) $(BLD_CXX_LIB_DIR) $(BLD_PTHREADS_LIB_DIR))
@@ -260,16 +259,22 @@ aix5_ppc_64_CONFIG_SHELL=/usr/bin/bash
 aix5_ppc_32_CONFIG_SHELL=/usr/bin/bash
 aix7_ppc_64_CONFIG_SHELL=/usr/bin/bash
 BLD_CONFIG_SHELL=$($(BLD_ARCH)_CONFIG_SHELL)
-
+INSTLOC=/home/fdkly/workspace/gpdb/gpAux/greenplum-db-devel
 $(GPPGDIR)/GNUmakefile : $(GPPGDIR)/configure  env.sh
+	echo $(ADDON_DIR)
+	echo "_______________"
 	echo "BLD_CFLAGS:"
 	echo $(BLD_CFLAGS)
 	echo "*****************"
+	echo $(INSTLOC)
 	rm -rf $(INSTLOC)
 	mkdir -p $(GPPGDIR)
 	if [ "$(BLD_ARCH)" = "win32" ]; then \
 		$(MAKE) -C $(GPPGDIR)/src/bin/gpfdist/ext BLD_TOP=$(BLD_TOP); \
 	fi
+	INSTLOC=/home/fdkly/workspace/gpdb/gpAux/greenplum-db-devel
+	echo "------------------------"
+	echo $(INSTLOC)
 	cd $(GPPGDIR) && CC="$(strip $(BLD_CC) $(BLD_CFLAGS))"    \
                      CFLAGS=$(INSTCFLAGS) $(BLD_CONFIG_SHELL) \
                      ./configure $(CONFIGFLAGS)               \
@@ -367,7 +372,6 @@ define BUILD_STEPS
 	@$(MAKE) set_scripts_version INSTLOC=$(LOADERSINSTLOC)
 endef
 endif
-
 ifeq "$(BLD_GPDB_BUILDSET)" "partial"
 define BUILD_STEPS
 	rm -rf $(INSTLOC)
@@ -382,6 +386,9 @@ define BUILD_STEPS
 	cd $(BUILDDIR)/src/bin/scripts/ && $(MAKE) install
 	cd $(BUILDDIR)/src/bin/psql/ && $(MAKE) install
 	cd $(BUILDDIR)/src/bin/pg_config/ && $(MAKE) install
+	echo "***********************"
+	echo $(INSTLOC)
+	INSTLOC=/home/fdkly/workspace/gpdb/gpAux/greenplum-db-devel
 	cd $(BUILDDIR)/src/bin/pg_dump/ && $(MAKE) pg_dump
 	cp -p $(BUILDDIR)/src/bin/pg_dump/pg_dump$(EXE_EXT) $(INSTLOC)/bin/
 	cd $(BUILDDIR)/src/bin/pg_dump/ && $(MAKE) pg_dumpall
@@ -1003,7 +1010,7 @@ copylibs : thirdparty-dist copy-nbu-libs
 	fi
 	mkdir -p $(INSTLOC)/etc
 	mkdir -p $(INSTLOC)/include
-ifeq "$(findstring $(BLD_ARCH),aix5_ppc_32 aix5_ppc_64 aix5_ppc_64 win32 win64)" ""
+ifeq "$(findstring $(BLD_ARCH),aix5_ppc_32 aix5_ppc_64 aix7_ppc_64 win32 win64)" ""
 	# Copy curl header file
 	cp -rp $(BLD_THIRDPARTY_INCLUDE_DIR)/curl $(INSTLOC)/include/
 endif
