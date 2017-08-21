@@ -261,20 +261,12 @@ aix7_ppc_64_CONFIG_SHELL=/usr/bin/bash
 BLD_CONFIG_SHELL=$($(BLD_ARCH)_CONFIG_SHELL)
 INSTLOC=/home/fdkly/workspace/gpdb/gpAux/greenplum-db-devel
 $(GPPGDIR)/GNUmakefile : $(GPPGDIR)/configure  env.sh
-	echo $(ADDON_DIR)
-	echo "_______________"
-	echo "BLD_CFLAGS:"
-	echo $(BLD_CFLAGS)
-	echo "*****************"
-	echo $(INSTLOC)
 	rm -rf $(INSTLOC)
 	mkdir -p $(GPPGDIR)
 	if [ "$(BLD_ARCH)" = "win32" ]; then \
 		$(MAKE) -C $(GPPGDIR)/src/bin/gpfdist/ext BLD_TOP=$(BLD_TOP); \
 	fi
 	INSTLOC=/home/fdkly/workspace/gpdb/gpAux/greenplum-db-devel
-	echo "------------------------"
-	echo $(INSTLOC)
 	cd $(GPPGDIR) && CC="$(strip $(BLD_CC) $(BLD_CFLAGS))"    \
                      CFLAGS=$(INSTCFLAGS) $(BLD_CONFIG_SHELL) \
                      ./configure $(CONFIGFLAGS)               \
@@ -329,7 +321,7 @@ hpux_ia64_GPDB_BUILDSET=partial
 rhel5_x86_32_GPDB_BUILDSET=partial
 aix5_ppc_64_GPDB_BUILDSET=partial
 aix5_ppc_32_GPDB_BUILDSET=partial
-aix7_ppc_64_GPDB_BUILDSET=partial
+aix7_ppc_64_GPDB_BUILDSET=aix_subset
 sol10_x86_64_GPDB_BUILDSET=partial
 sol10_x86_32_GPDB_BUILDSET=partial
 sol10_sparc_32_GPDB_BUILDSET=partial
@@ -365,9 +357,16 @@ endef
 ifeq "$(BLD_GPDB_BUILDSET)" "aix_subset"
 define BUILD_STEPS
 	rm -rf $(INSTLOC)
-	cd $(BUILDDIR)/src/include/ && $(MAKE) install
+	cd $(BUILDDIR)/src/backend/ && $(MAKE) ../../src/include/parser/gram.h
+	cd $(BUILDDIR)/src/backend/ && $(MAKE) ../../src/include/utils/fmgroids.h
+	cd $(BUILDDIR)/src/interfaces/libpq/ && $(MAKE) install
+	cd $(BUILDDIR)/src/bin/psql/ && $(MAKE) install
+	cd $(BUILDDIR)/src/bin/pg_dump/ && $(MAKE) install
+	cd $(BUILDDIR)/src/bin/gpfdist && $(MAKE) install
 	@$(MAKE) mgmtcopy INSTLOC=$(INSTLOC)
 	@$(MAKE) copylibs INSTLOC=$(INSTLOC)
+	@$(MAKE) clients INSTLOC=$(INSTLOC) CLIENTINSTLOC=$(CLIENTINSTLOC)
+	@$(MAKE) set_scripts_version INSTLOC=$(CLIENTINSTLOC)
 	@$(MAKE) loaders INSTLOC=$(INSTLOC) LOADERSINSTLOC=$(LOADERSINSTLOC)
 	@$(MAKE) set_scripts_version INSTLOC=$(LOADERSINSTLOC)
 endef
@@ -386,8 +385,6 @@ define BUILD_STEPS
 	cd $(BUILDDIR)/src/bin/scripts/ && $(MAKE) install
 	cd $(BUILDDIR)/src/bin/psql/ && $(MAKE) install
 	cd $(BUILDDIR)/src/bin/pg_config/ && $(MAKE) install
-	echo "***********************"
-	echo $(INSTLOC)
 	INSTLOC=/home/fdkly/workspace/gpdb/gpAux/greenplum-db-devel
 	cd $(BUILDDIR)/src/bin/pg_dump/ && $(MAKE) pg_dump
 	cp -p $(BUILDDIR)/src/bin/pg_dump/pg_dump$(EXE_EXT) $(INSTLOC)/bin/
@@ -925,9 +922,7 @@ ifeq "$(findstring $(BLD_ARCH),$(GPPKG_PLATFORMS))" ""
 	rm -f $(INSTLOC)/bin/gppkg
 endif
 	cp -rp $(GPMGMT)/sbin/* $(INSTLOC)/sbin/.
-	cp -p extensions/gpfdist/gpfdist$(EXE_EXT) $(INSTLOC)/bin/
 	cp $(GPPGDIR)/src/test/regress/*.pl $(INSTLOC)/bin
-	cp $(GPPGDIR)/src/test/regress/*.pm $(INSTLOC)/bin
 	if [ ! -d ${INSTLOC}/docs ] ; then mkdir ${INSTLOC}/docs ; fi
 	if [ -d $(GPMGMT)/doc ]; then cp -rp $(GPMGMT)/doc $(INSTLOC)/docs/cli_help; fi
 	if [ -d $(GPMGMT)/demo/gpmapreduce ]; then \

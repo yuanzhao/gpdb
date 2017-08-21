@@ -68,6 +68,8 @@ pygresql:
 	mkdir -p $(PYLIB_DIR)/pygresql
 	if [ `uname -s` = 'Darwin' ]; then \
 	  cp -r $(PYLIB_SRC)/$(PYGRESQL_DIR)/build/lib.macosx*/* $(PYLIB_DIR)/pygresql; \
+	elif [ `uname -s` = 'AIX' ]; then \
+	  cp -r $(PYLIB_SRC)/$(PYGRESQL_DIR)/build/lib.aix*/* $(PYLIB_DIR)/pygresql; \
 	else \
 	  cp -r $(PYLIB_SRC)/$(PYGRESQL_DIR)/build/lib.linux*/* $(PYLIB_DIR)/pygresql; \
 	fi
