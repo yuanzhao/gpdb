@@ -357,9 +357,12 @@ endef
 ifeq "$(BLD_GPDB_BUILDSET)" "aix_subset"
 define BUILD_STEPS
 	rm -rf $(INSTLOC)
+	cd $(BUILDDIR)/gpMgmt/ && $(MAKE) generate_greenplum_path_file
 	cd $(BUILDDIR)/src/backend/ && $(MAKE) ../../src/include/parser/gram.h
 	cd $(BUILDDIR)/src/backend/ && $(MAKE) ../../src/include/utils/fmgroids.h
+	cd $(BUILDDIR)/src/include/ && $(MAKE) install
 	cd $(BUILDDIR)/src/interfaces/libpq/ && $(MAKE) install
+	cd $(BUILDDIR)/src/bin/pg_config/ && $(MAKE) install
 	cd $(BUILDDIR)/src/bin/psql/ && $(MAKE) install
 	cd $(BUILDDIR)/src/bin/pg_dump/ && $(MAKE) install
 	cd $(BUILDDIR)/src/bin/gpfdist && $(MAKE) install
@@ -367,6 +370,11 @@ define BUILD_STEPS
 	@$(MAKE) copylibs INSTLOC=$(INSTLOC)
 	@$(MAKE) clients INSTLOC=$(INSTLOC) CLIENTINSTLOC=$(CLIENTINSTLOC)
 	@$(MAKE) set_scripts_version INSTLOC=$(CLIENTINSTLOC)
+	if [ "$(findstring hpux_ia64,$(BLD_ARCH))" = "hpux_ia64" ]; then \
+	  cd $(GPMGMT)/bin && $(MAKE) pygresql LDFLAGS="" INSTLOC=$(INSTLOC) ; \
+	elif [ "$(findstring win,$(BLD_ARCH))" != "win" ]; then \
+	  cd $(GPMGMT)/bin && $(MAKE) pygresql INSTLOC=$(INSTLOC) ; \
+	fi
 	@$(MAKE) loaders INSTLOC=$(INSTLOC) LOADERSINSTLOC=$(LOADERSINSTLOC)
 	@$(MAKE) set_scripts_version INSTLOC=$(LOADERSINSTLOC)
 endef
@@ -463,9 +471,6 @@ else
 dist : gccVersionCheck GPROOTDEP RECONFIG $(ISCONFIG)
 endif
 	$(BUILD_STEPS)
-ifneq "$(BLD_GPDB_BUILDSET)" "partial"
-	@$(MAKE) qautils-tarball INSTLOC=$(INSTLOC)
-endif
 
 dist_prof : INSTCFLAGS=$(PROFFLAGS)
 dist_prof : INSTLOC=$(DISTPATH)
@@ -577,7 +582,7 @@ LOADERS_FILESET_BINEXT = $(strip $(tmpLOADERS_FILESET_BINEXT))
 BLD_PYTHON_FILESET=.
 aix5_ppc_32_PYTHON_FILESET=bin/python* lib/python* include/python*
 aix5_ppc_64_PYTHON_FILESET=bin/python* lib/python* include/python*
-aix7_ppc_64_PYTHON_FILESET=bin/python* lib/python* lib64/python* include/python*
+aix7_ppc_64_PYTHON_FILESET=bin/python_64 lib/python* lib64/python* include/python*
 ifneq "$($(BLD_ARCH)_PYTHON_FILESET)" ""
 BLD_PYTHON_FILESET=$($(BLD_ARCH)_PYTHON_FILESET)
 endif
