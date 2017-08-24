@@ -454,6 +454,9 @@ devel : gccVersionCheck HOMEDEP $(ISCONFIG)
 endif
 	$(BUILD_STEPS)
 
+ifneq "$(findstring $(BLD_GPDB_BUILDSET),partial aix_subset)" ""
+	@$(MAKE) qautils-tarball INSTLOC=$(INSTLOC)
+endif
 #---------------------------------------------------------------------
 # Release builds
 #---------------------------------------------------------------------
