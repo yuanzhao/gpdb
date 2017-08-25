@@ -173,7 +173,7 @@ rhel5_x86_32_BLD_LDFLAGS=-m32
 BLD_LDFLAGS=$($(BLD_ARCH)_BLD_LDFLAGS)
 
 # See http://www.postgresql.org/docs/faqs.FAQ_AIX.html for an explanation of this
-ifeq "$(findstring $(BLD_ARCH), aix5_ppc_64 aix7_ppc_64)" ""
+ifneq "$(findstring $(BLD_ARCH), aix5_ppc_64 aix7_ppc_64)" ""
 export OBJECT_MODE=64
 export CONFIG_SHELL=/usr/bin/bash
 endif
