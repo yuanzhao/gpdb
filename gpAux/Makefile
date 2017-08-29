@@ -221,7 +221,7 @@ CONFIGFLAGS+= --with-openssl --with-pam --with-krb5 --with-ldap $(BLD_CURL_CONFI
 endif
 
 # ...but do include some of the authlibs on AIX
-ifneq "$(findstring $(BLD_ARCH),aix7_ppc_64 ix5_ppc_32 aix5_ppc_64)" ""
+ifneq "$(findstring $(BLD_ARCH),aix7_ppc_64 aix5_ppc_32 aix5_ppc_64)" ""
 CONFIGFLAGS+= --with-openssl --with-pam --without-krb5 --with-ldap $(BLD_CURL_CONFIG)
 endif
 
@@ -582,7 +582,7 @@ LOADERS_FILESET_BINEXT = $(strip $(tmpLOADERS_FILESET_BINEXT))
 BLD_PYTHON_FILESET=.
 aix5_ppc_32_PYTHON_FILESET=bin/python* lib/python* include/python*
 aix5_ppc_64_PYTHON_FILESET=bin/python* lib/python* include/python*
-aix7_ppc_64_PYTHON_FILESET=bin/python_64 lib/python* lib64/python* include/python*
+aix7_ppc_64_PYTHON_FILESET=bin/python* lib/python* lib64/python* include/python*
 ifneq "$($(BLD_ARCH)_PYTHON_FILESET)" ""
 BLD_PYTHON_FILESET=$($(BLD_ARCH)_PYTHON_FILESET)
 endif
